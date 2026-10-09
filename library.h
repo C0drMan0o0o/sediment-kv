@@ -1,6 +1,3 @@
-#ifndef SEDIMENT_KV_LIBRARY_H
-#define SEDIMENT_KV_LIBRARY_H
+#pragma once
 
 void hello();
-
-#endif // SEDIMENT_KV_LIBRARY_H
