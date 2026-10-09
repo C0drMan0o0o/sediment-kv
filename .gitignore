@@ -1,0 +1,85 @@
+# --- Build output ---
+build/
+build-*/
+cmake-build-*/
+out/
+bin/
+lib/
+
+# --- CMake generated ---
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+_deps/
+install_manifest.txt
+compile_commands.json
+
+# --- Compiled objects and binaries ---
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.gch
+*.pch
+*.dSYM/
+
+# --- IDEs and editors ---
+.idea/
+.vscode/
+.vs/
+*.swp
+*~
+.cache/
+.clangd/
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+
+# --- Profiling, coverage and debugging ---
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+*.gcov
+coverage/
+perf.data
+perf.data.old
+*.svg.tmp
+callgrind.out.*
+core
+core.*
+vgcore.*
+*.log
+
+# --- Fuzzing ---
+fuzz/corpus-tmp/
+crash-*
+leak-*
+timeout-*
+oom-*
+
+# --- Database files created by tests and benchmarks ---
+# Never commit generated data: it can be huge and breaks clones.
+testdb/
+tmp/
+*.sst
+*.wal
+MANIFEST-*
+CURRENT
+LOCK
+
+# --- Benchmark baselines built from source ---
+bench/baseline/leveldb/
+bench/baseline/rocksdb/
+bench/results/raw/
+
+# --- Keep these tracked (commit results and graphs) ---
+# bench/results/*.csv and bench/results/*.png should be committed.
