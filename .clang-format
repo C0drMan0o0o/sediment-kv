@@ -1,0 +1,8 @@
+BasedOnStyle: Google
+Language: Cpp
+Standard: c++20
+ColumnLimit: 80
+DerivePointerAlignment: false
+PointerAlignment: Left
+# Keep one-line accessors in class bodies, but expand TEST(...) and free functions.
+AllowShortFunctionsOnASingleLine: Inline
