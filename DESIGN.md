@@ -42,3 +42,24 @@ Rules for choosing a code:
 - `NotFound` is not an error of the engine. Callers branch on it, so never return it for anything but a missing key or file.
 - `Corruption` and `IOError` are different failures. If the read succeeded and the bytes are wrong, it is `Corruption`; if the read itself failed, it is `IOError`. A reader must never hand back garbage in place of either.
 - A torn tail in the write-ahead log is not `Corruption`. Recovery stops at the first bad record and treats the rest as never acknowledged.
+
+## Resources
+
+Background reading on key-value storage engines.
+
+### Tutorials
+
+- [mini-lsm](https://skyzh.github.io/mini-lsm/): a course that builds an LSM-tree KV store from scratch (memtable, SSTables, compaction, WAL, MVCC).
+- [Let's Build a Simple Database](https://cstack.github.io/db_tutorial/): an on-disk B-tree, step by step.
+- [Bitcask paper](https://riak.com/assets/bitcask-intro.pdf): an append-only log with an in-memory hash index.
+
+### Papers
+
+- [Bigtable](https://research.google/pubs/bigtable-a-distributed-storage-system-for-structured-data/): the memtable/SSTable design.
+- [The Log-Structured Merge-Tree](https://www.cs.umb.edu/~poneil/lsmtree.pdf) (O'Neil et al., 1996).
+- [WiscKey](https://www.usenix.org/system/files/conference/fast16/fast16-papers-lu.pdf): separating keys from values to reduce write amplification.
+
+### Codebases and docs
+
+- [LevelDB](https://github.com/google/leveldb): small, readable C++; see `doc/impl.md` and `doc/table_format.md`.
+- [RocksDB wiki](https://github.com/facebook/rocksdb/wiki): compaction styles, the write path and tuning.
