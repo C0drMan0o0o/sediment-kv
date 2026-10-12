@@ -40,3 +40,20 @@ jobs:
         run: cmake --build build
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  lint:
+    name: clang-format + clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang clang-format clang-tidy
+          pipx install cmake && pipx install ninja
+      - name: Format check
+        run: git ls-files '*.h' '*.cpp' | xargs clang-format --dry-run -Werror
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
+      - name: clang-tidy
+        run: git ls-files 'src/*.cpp' 'tests/*.cpp' | xargs clang-tidy -p build --quiet

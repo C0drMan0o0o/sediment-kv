@@ -18,5 +18,5 @@ Checks: >
   readability-redundant-*,
   readability-braces-around-statements,
   readability-else-after-return
-WarningsAsErrors: ''
+WarningsAsErrors: '*'
 HeaderFilterRegex: '(include/sediment|src|tests)/.*'
