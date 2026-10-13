@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstddef>
-#include <memory>
 #include <vector>
 
 namespace sediment {
@@ -25,12 +24,11 @@ class Arena {
   static constexpr size_t kBlockSize = 4096;
 
  private:
-  char* AllocateFallback(size_t bytes, size_t alignment);
   char* NewBlock(size_t block_bytes);
 
   char* ptr_ = nullptr;
   size_t remaining_ = 0;
-  std::vector<std::unique_ptr<char[]>> blocks_;
+  std::vector<std::vector<char>> blocks_;
   size_t memory_usage_ = 0;
 };
 

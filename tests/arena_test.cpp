@@ -62,7 +62,9 @@ TEST(Arena, UsageGrowsWithAllocations) {
   arena.Allocate(10);
   size_t first = arena.MemoryUsage();
   EXPECT_GE(first, 10u);
-  for (int i = 0; i < 100; ++i) arena.Allocate(1000);
+  for (int i = 0; i < 100; ++i) {
+    arena.Allocate(1000);
+  }
   EXPECT_GE(arena.MemoryUsage(), 100000u);
 }
 
