@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -26,7 +27,9 @@ class SkipList {
         arena_(arena),
         head_(NewNode(Key(), kMaxHeight)),
         rng_(seed) {
-    for (int i = 0; i < kMaxHeight; ++i) head_->SetNext(i, nullptr);
+    for (int i = 0; i < kMaxHeight; ++i) {
+      head_->SetNext(i, nullptr);
+    }
   }
 
   SkipList(const SkipList&) = delete;
@@ -34,13 +37,15 @@ class SkipList {
 
   // Requires: no entry comparing equal to `key` is already present.
   void Insert(const Key& key) {
-    Node* prev[kMaxHeight];
-    Node* x = FindGreaterOrEqual(key, prev);
+    std::array<Node*, kMaxHeight> prev;
+    Node* x = FindGreaterOrEqual(key, prev.data());
     assert(x == nullptr || compare_(key, x->key) != 0);
 
     const int height = RandomHeight();
     if (height > max_height_) {
-      for (int i = max_height_; i < height; ++i) prev[i] = head_;
+      for (int i = max_height_; i < height; ++i) {
+        prev[i] = head_;
+      }
       max_height_ = height;
     }
     x = NewNode(key, height);
@@ -81,7 +86,9 @@ class SkipList {
   // Branching factor 4: each level holds ~1/4 of the level below.
   int RandomHeight() {
     int height = 1;
-    while (height < kMaxHeight && rng_() % 4 == 0) ++height;
+    while (height < kMaxHeight && rng_() % 4 == 0) {
+      ++height;
+    }
     return height;
   }
 
@@ -95,8 +102,12 @@ class SkipList {
       if (next != nullptr && compare_(next->key, key) < 0) {
         x = next;
       } else {
-        if (prev != nullptr) prev[level] = x;
-        if (level == 0) return next;
+        if (prev != nullptr) {
+          prev[level] = x;
+        }
+        if (level == 0) {
+          return next;
+        }
         --level;
       }
     }
