@@ -61,6 +61,42 @@ class SkipList {
   }
 
  private:
+  struct Node;
+
+ public:
+  // Forward iterator over a list. Starts invalid; position it with Seek or
+  // SeekToFirst. Valid iterators must not outlive the list.
+  class Iterator {
+   public:
+    explicit Iterator(const SkipList* list) : list_(list) {}
+
+    bool Valid() const { return node_ != nullptr; }
+
+    // Requires: Valid().
+    const Key& key() const {
+      assert(Valid());
+      return node_->key;
+    }
+
+    // Requires: Valid().
+    void Next() {
+      assert(Valid());
+      node_ = node_->Next(0);
+    }
+
+    // Positions at the first entry >= target; invalid if there is none.
+    void Seek(const Key& target) {
+      node_ = list_->FindGreaterOrEqual(target, nullptr);
+    }
+
+    void SeekToFirst() { node_ = list_->head_->Next(0); }
+
+   private:
+    const SkipList* const list_;
+    Node* node_ = nullptr;
+  };
+
+ private:
   struct Node {
     explicit Node(const Key& k) : key(k) {}
     Key const key;

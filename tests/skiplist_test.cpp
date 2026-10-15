@@ -87,5 +87,78 @@ TEST(SkipList, SameSeedGivesSameShape) {
   EXPECT_EQ(a.MemoryUsage(), b.MemoryUsage());
 }
 
+TEST(SkipList, EmptyIteratorIsInvalid) {
+  Arena arena;
+  IntList list(IntCmp(), &arena);
+  IntList::Iterator it(&list);
+  EXPECT_FALSE(it.Valid());
+  it.SeekToFirst();
+  EXPECT_FALSE(it.Valid());
+  it.Seek(5);
+  EXPECT_FALSE(it.Valid());
+}
+
+TEST(SkipList, SeekFindsFirstGreaterOrEqual) {
+  Arena arena;
+  IntList list(IntCmp(), &arena);
+  for (uint64_t k : {10, 20, 30}) {
+    list.Insert(k);
+  }
+  IntList::Iterator it(&list);
+  it.Seek(0);
+  ASSERT_TRUE(it.Valid());
+  EXPECT_EQ(it.key(), 10u);
+  it.Seek(20);
+  ASSERT_TRUE(it.Valid());
+  EXPECT_EQ(it.key(), 20u);
+  it.Seek(21);
+  ASSERT_TRUE(it.Valid());
+  EXPECT_EQ(it.key(), 30u);
+  it.Seek(31);
+  EXPECT_FALSE(it.Valid());
+}
+
+// Fixed seeds: compares full iteration and Seek against a std::set oracle.
+TEST(SkipList, RandomizedMatchesStdSetOracle) {
+  for (uint32_t seed = 1; seed <= 20; ++seed) {
+    Arena arena;
+    IntList list(IntCmp(), &arena, seed);
+    std::mt19937_64 rng(seed);
+    std::set<uint64_t> oracle;
+    const size_t n = 200 + seed * 100;
+    while (oracle.size() < n) {
+      uint64_t k = rng() % (n * 4);
+      if (oracle.insert(k).second) {
+        list.Insert(k);
+      }
+    }
+
+    IntList::Iterator it(&list);
+    it.SeekToFirst();
+    for (uint64_t expected : oracle) {
+      ASSERT_TRUE(it.Valid()) << "seed " << seed;
+      ASSERT_EQ(it.key(), expected) << "seed " << seed;
+      it.Next();
+    }
+    EXPECT_FALSE(it.Valid());
+
+    for (int i = 0; i < 1000; ++i) {
+      uint64_t target = rng() % (n * 4 + 10);
+      it.Seek(target);
+      auto want = oracle.lower_bound(target);
+      if (want == oracle.end()) {
+        ASSERT_FALSE(it.Valid()) << "seed " << seed << " target " << target;
+        continue;
+      }
+      // Walk a few steps to check order after Seek, not just the landing.
+      for (int step = 0; step < 5 && want != oracle.end(); ++step, ++want) {
+        ASSERT_TRUE(it.Valid()) << "seed " << seed << " target " << target;
+        ASSERT_EQ(it.key(), *want);
+        it.Next();
+      }
+    }
+  }
+}
+
 }  // namespace
 }  // namespace sediment
