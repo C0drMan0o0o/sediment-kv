@@ -11,7 +11,9 @@ namespace sediment {
 using SequenceNumber = uint64_t;
 
 // Sequence numbers occupy the upper 56 bits of the packed tag.
-inline constexpr SequenceNumber kMaxSequenceNumber = (uint64_t{1} << 56) - 1;
+inline constexpr uint64_t kTagTypeBits = 8;
+inline constexpr SequenceNumber kMaxSequenceNumber =
+    (uint64_t{1} << (64 - kTagTypeBits)) - 1;
 
 // The numeric values are part of the on-disk format; do not reorder.
 // A delete sorts before a put at the same sequence number.

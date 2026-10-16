@@ -2,7 +2,8 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
+#include <array>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -12,14 +13,16 @@ namespace {
 std::string Encode(std::string_view user_key, SequenceNumber seq,
                    ValueType type) {
   std::string out;
-  AppendInternalKey(&out, {user_key, seq, type});
+  AppendInternalKey(&out,
+                    {.user_key = user_key, .sequence = seq, .type = type});
   return out;
 }
 
 TEST(InternalKey, RoundTrip) {
-  const std::string_view keys[] = {"", "a", "hello",
-                                   std::string_view("a\0b", 3)};
-  const SequenceNumber seqs[] = {0, 1, 255, 256, kMaxSequenceNumber};
+  const std::array<std::string_view, 4> keys = {"", "a", "hello",
+                                                std::string_view("a\0b", 3)};
+  const std::array<SequenceNumber, 5> seqs = {0, 1, 255, 256,
+                                              kMaxSequenceNumber};
   for (auto key : keys) {
     for (auto seq : seqs) {
       for (auto type : {ValueType::kDeletion, ValueType::kValue}) {
@@ -88,15 +91,16 @@ TEST(InternalKey, DeletionSortsAfterPutAtSameSequence) {
 }
 
 TEST(InternalKey, SortedOrderGroupsKeysNewestFirst) {
-  std::vector<std::string> keys = {
+  struct Less {
+    bool operator()(const std::string& a, const std::string& b) const {
+      return CompareInternalKeys(a, b) < 0;
+    }
+  };
+  const std::set<std::string, Less> keys = {
       Encode("b", 1, ValueType::kValue),    Encode("a", 3, ValueType::kValue),
       Encode("b", 9, ValueType::kDeletion), Encode("a", 7, ValueType::kValue),
       Encode("a", 1, ValueType::kValue),
   };
-  std::sort(keys.begin(), keys.end(),
-            [](const std::string& a, const std::string& b) {
-              return InternalKeyComparator()(a, b) < 0;
-            });
   std::vector<std::pair<std::string, SequenceNumber>> got;
   for (const auto& k : keys) {
     ParsedInternalKey p;

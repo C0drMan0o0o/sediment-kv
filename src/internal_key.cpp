@@ -10,10 +10,11 @@ namespace sediment {
 namespace {
 
 constexpr size_t kTagBytes = 8;
+constexpr uint64_t kTypeMask = (uint64_t{1} << kTagTypeBits) - 1;
 
 uint64_t PackTag(SequenceNumber sequence, ValueType type) {
   assert(sequence <= kMaxSequenceNumber);
-  return (sequence << 8) | static_cast<uint8_t>(type);
+  return (sequence << kTagTypeBits) | static_cast<uint64_t>(type);
 }
 
 uint64_t DecodeTag(std::string_view internal_key) {
@@ -37,12 +38,12 @@ Status ParseInternalKey(std::string_view input, ParsedInternalKey* result) {
     return Status::Corruption("internal key shorter than tag");
   }
   const uint64_t tag = DecodeTag(input);
-  const uint8_t type = static_cast<uint8_t>(tag & 0xff);
+  const auto type = static_cast<uint8_t>(tag & kTypeMask);
   if (type > static_cast<uint8_t>(ValueType::kValue)) {
     return Status::Corruption("internal key has unknown value type");
   }
   result->user_key = input.substr(0, input.size() - kTagBytes);
-  result->sequence = tag >> 8;
+  result->sequence = tag >> kTagTypeBits;
   result->type = static_cast<ValueType>(type);
   return Status::OK();
 }
@@ -54,11 +55,17 @@ std::string_view ExtractUserKey(std::string_view internal_key) {
 
 int CompareInternalKeys(std::string_view a, std::string_view b) {
   const int r = ExtractUserKey(a).compare(ExtractUserKey(b));
-  if (r != 0) return r < 0 ? -1 : 1;
+  if (r != 0) {
+    return r < 0 ? -1 : 1;
+  }
   const uint64_t ta = DecodeTag(a);
   const uint64_t tb = DecodeTag(b);
-  if (ta > tb) return -1;  // higher sequence (newer) sorts first
-  if (ta < tb) return 1;
+  if (ta > tb) {
+    return -1;  // higher sequence (newer) sorts first
+  }
+  if (ta < tb) {
+    return 1;
+  }
   return 0;
 }
 
