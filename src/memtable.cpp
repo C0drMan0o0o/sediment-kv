@@ -25,7 +25,7 @@ std::string_view GetLengthPrefixed(const char* p, const char** end) {
 }  // namespace
 
 int MemTable::EntryComparator::operator()(const char* a, const char* b) const {
-  const char* end;
+  const char* end = nullptr;
   return CompareInternalKeys(GetLengthPrefixed(a, &end),
                              GetLengthPrefixed(b, &end));
 }
@@ -73,7 +73,7 @@ MemTable::GetResult MemTable::Get(std::string_view key, SequenceNumber sequence,
   }
 
   const char* entry = it.key();
-  const char* key_end;
+  const char* key_end = nullptr;
   const std::string_view internal_key = GetLengthPrefixed(entry, &key_end);
   ParsedInternalKey parsed;
   const Status s = ParseInternalKey(internal_key, &parsed);
@@ -85,7 +85,7 @@ MemTable::GetResult MemTable::Get(std::string_view key, SequenceNumber sequence,
   if (parsed.type == ValueType::kDeletion) {
     return GetResult::kDeleted;
   }
-  const char* value_end;
+  const char* value_end = nullptr;
   const std::string_view v = GetLengthPrefixed(key_end, &value_end);
   value->assign(v.data(), v.size());
   return GetResult::kFound;

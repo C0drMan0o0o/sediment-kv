@@ -119,7 +119,7 @@ TEST(MemTable, ApproximateMemoryGrows) {
             std::string(100, 'x'));
   }
   // Usage must cover the payload: 2000 entries of >100 bytes each.
-  EXPECT_GT(mem.ApproximateMemoryUsage(), empty + 1999u * 100u);
+  EXPECT_GT(mem.ApproximateMemoryUsage(), empty + size_t{1999} * 100);
 }
 
 }  // namespace
