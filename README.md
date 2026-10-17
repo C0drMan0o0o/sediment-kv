@@ -25,7 +25,7 @@ Warnings are errors (`-Wall -Wextra -Wpedantic -Werror`) for the project's own t
 
 ### Sanitizers
 
-Set `SEDIMENT_SANITIZE` to build with sanitizers: `address`, `undefined`, `thread`, or a comma-separated combination. `thread` cannot be combined with `address`.
+Set `SEDIMENT_SANITIZE` to build with sanitisers: `address`, `undefined`, `thread`, or a comma-separated combination. `thread` cannot be combined with `address`.
 
 ```bash
 cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DSEDIMENT_SANITIZE=address,undefined

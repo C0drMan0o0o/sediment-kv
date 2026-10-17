@@ -5,16 +5,16 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Sanitizer selection: "", "address", "undefined", "thread", or a combination
+# Sanitiser selection: "", "address", "undefined", "thread", or a combination
 # such as "address,undefined". Thread cannot be combined with address.
-set(SEDIMENT_SANITIZE "" CACHE STRING "Sanitizers to enable (address, undefined, thread)")
+set(SEDIMENT_SANITIZE "" CACHE STRING "Sanitisers to enable (address, undefined, thread)")
 set_property(CACHE SEDIMENT_SANITIZE PROPERTY STRINGS "" address undefined "address,undefined" thread)
 
 if(SEDIMENT_SANITIZE)
   string(REPLACE "," ";" _sanitizers "${SEDIMENT_SANITIZE}")
   foreach(_s IN LISTS _sanitizers)
     if(NOT _s MATCHES "^(address|undefined|thread)$")
-      message(FATAL_ERROR "SEDIMENT_SANITIZE: unknown sanitizer '${_s}'")
+      message(FATAL_ERROR "SEDIMENT_SANITIZE: unknown sanitiser '${_s}'")
     endif()
   endforeach()
   if("thread" IN_LIST _sanitizers AND "address" IN_LIST _sanitizers)
