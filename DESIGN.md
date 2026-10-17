@@ -8,6 +8,8 @@ Decisions are recorded here as they are made, with the alternatives that were re
 |------|--------|----------|-----|
 | Byte views | `std::string_view` | A custom `Slice` class | See [Byte views](#byte-views) |
 | Error reporting | `Status` return values, `[[nodiscard]]` | Exceptions | See [Error handling](#error-handling) |
+| Memtable structure | Skiplist over an arena | Red-black tree, `std::map` | See [Memtable](#memtable) |
+| Key versions | Internal key = user key + (sequence, type) tag | Overwrite in place | See [Key encoding](#key-encoding) |
 
 ## Byte views
 
@@ -42,6 +44,44 @@ Rules for choosing a code:
 - `NotFound` is not an error of the engine. Callers branch on it, so never return it for anything but a missing key or file.
 - `Corruption` and `IOError` are different failures. If the read succeeded and the bytes are wrong, it is `Corruption`; if the read itself failed, it is `IOError`. A reader must never hand back garbage in place of either.
 - A torn tail in the write-ahead log is not `Corruption`. Recovery stops at the first bad record and treats the rest as never acknowledged.
+
+## Key encoding
+
+The engine never overwrites or removes an entry in memory or in an SSTable. Every write is a new version identified by an internal key:
+
+```
+internal key = user_key bytes | fixed64 LE ( sequence << 8 | type )
+```
+
+- `sequence` is a 56-bit number assigned to each write, increasing. `type` is `kValue` (1) or `kDeletion` (0). The numeric values are part of the on-disk format.
+- Ordering: user key ascending (bytewise), then sequence **descending**, so the newest version of a key comes first. A lookup seeks to `(key, read_sequence)` and the first entry at or after it is the newest version visible to that reader.
+- A delete is a `kDeletion` entry (a tombstone), not a removal. It must outlive the values it hides, because older versions may still sit in lower levels. Dropping tombstones is a compaction decision.
+- Sequence numbers are what make snapshots possible later: a reader pins a sequence and ignores anything newer.
+
+Rejected: overwriting in place. It cannot represent deletes across files, and it makes the memtable's contents depend on write order in ways that break snapshots and recovery.
+
+## Memtable
+
+The memtable is the in-memory write buffer. Writes go to the WAL first, then into the memtable; when it reaches `memtable_bytes` it becomes immutable and is flushed to an SSTable.
+
+**Structure: skiplist over an arena.**
+
+- A skiplist keeps entries sorted, which is exactly what the flush needs (SSTables are written in key order) and gives ordered iteration for free.
+- Nodes and entry bytes live in an `Arena`: allocation is a pointer bump, memory is freed all at once when the memtable is dropped, and `MemoryUsage()` gives the flush trigger without walking the structure.
+- Red-black trees and `std::map` were rejected: per-node `new`/`delete`, worse locality, and no path to lock-free concurrent reads. A skiplist with a single writer needs only release/acquire on the next-pointers to allow readers during writes; that is a later extension, and v0.1 is single-threaded.
+
+**Entry layout** (one arena allocation per write; the skiplist stores a pointer to it):
+
+```
+varint32 internal_key_len | internal key | varint32 value_len | value
+```
+
+**API.**
+
+- `Add(sequence, type, key, value)` inserts a new version. Adding the same `(key, sequence)` twice is a caller bug.
+- `Get(key, sequence, &value)` returns one of three results: `kFound` (value copied out), `kDeleted` (a tombstone is the newest visible version), `kNotFound` (no visible version in this memtable).
+- `kDeleted` and `kNotFound` must stay distinct. `kNotFound` means "ask the next, older source" (immutable memtable, then SSTables); `kDeleted` means "stop, the key is gone". Collapsing them would resurrect deleted keys.
+- `ApproximateMemoryUsage()` is the arena's total, including slack in partially filled blocks. It grows in 4 KB steps, which is fine for a flush threshold of megabytes.
 
 ## Resources
 
