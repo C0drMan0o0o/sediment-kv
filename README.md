@@ -4,7 +4,18 @@
 
 A persistent, crash-safe key-value store written in C++20, built on a log-structured merge-tree (LSM-tree): write-ahead log, memtable, SSTables and leveled compaction.
 
-> **Status: work in progress.** Only the foundations exist so far (build system, CI, the `Status` type). There is no database API yet, so there is nothing to use beyond building and running the tests. Usage examples will be added once `DB::Open`, `Put` and `Get` land.
+> **Status: work in progress.** v0.1 is the in-memory half of the engine: `Status`, encoding helpers, an arena, a skiplist, internal keys and a memtable with tombstone-aware `Get`. Nothing touches disk yet and there is no database API, so there is nothing to use beyond building and running the tests. Next up: CRC32C, the file layer and the write-ahead log. Usage examples will be added once `DB::Open`, `Put` and `Get` land.
+
+## Components
+
+| Component | Header | Purpose |
+|-----------|--------|---------|
+| `Status` | `status.h` | Error handling without exceptions |
+| Encoding helpers | `coding.h` | Fixed-width and varint encoding |
+| `Arena` | `arena.h` | Block-based allocator backing the memtable |
+| `SkipList` | `skiplist.h` | Ordered in-memory structure, generic over a comparator |
+| Internal keys | `internal_key.h` | User key, sequence number and type, ordered by user key ascending then sequence descending |
+| `MemTable` | `memtable.h` | Write buffer; deletes are stored as tombstone entries |
 
 ## Requirements
 
@@ -46,4 +57,4 @@ CI runs the same steps on clang and gcc, plus an ASan + UBSan job.
 
 ## Design
 
-Design decisions and the alternatives that were rejected are recorded in [DESIGN.md](DESIGN.md), along with background reading on key-value storage engines.
+Design decisions and the alternatives that were rejected are recorded in [DESIGN.md](DESIGN.md), along with background reading on key-value storage engines. Lessons from the first release are in the [v0.1 retrospective](docs/retrospective-v0.1.md).
