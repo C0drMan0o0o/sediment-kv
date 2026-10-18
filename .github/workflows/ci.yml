@@ -46,14 +46,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Ubuntu's own clang packages lag behind; install LLVM 23 from apt.llvm.org
+      # so CI matches the version used locally.
       - name: Install tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang clang-format clang-tidy
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 23
+          sudo apt-get install -y clang-format-23 clang-tidy-23
           pipx install cmake && pipx install ninja
       - name: Format check
-        run: git ls-files '*.h' '*.cpp' | xargs clang-format --dry-run -Werror
+        run: git ls-files '*.h' '*.cpp' | xargs clang-format-23 --dry-run -Werror
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
+        run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++-23 -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
       - name: clang-tidy
-        run: git ls-files 'src/*.cpp' 'tests/*.cpp' | xargs clang-tidy -p build --quiet
+        run: git ls-files 'src/*.cpp' 'tests/*.cpp' | xargs clang-tidy-23 -p build --quiet
