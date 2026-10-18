@@ -46,13 +46,13 @@ TEST(Arena, AllocationsDoNotOverlap) {
   for (size_t i = 1; i < 2000; ++i) {
     size_t n = (i * 37) % 1500 + 1;
     char* p = arena.Allocate(n);
-    std::memset(p, static_cast<int>(i & 0xFF), n);
+    std::memset(p, static_cast<int>(i & 0xFFU), n);
     allocs.emplace_back(p, n);
   }
   for (size_t i = 0; i < allocs.size(); ++i) {
     auto [p, n] = allocs[i];
     for (size_t j = 0; j < n; ++j) {
-      ASSERT_EQ(static_cast<unsigned char>(p[j]), (i + 1) & 0xFF);
+      ASSERT_EQ(static_cast<unsigned char>(p[j]), (i + 1) & 0xFFU);
     }
   }
 }

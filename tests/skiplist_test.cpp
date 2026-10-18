@@ -42,6 +42,8 @@ TEST(SkipList, ContainsInsertedKeysOnly) {
 TEST(SkipList, TenThousandRandomKeys) {
   Arena arena;
   IntList list(IntCmp(), &arena, /*seed=*/301);
+  // A fixed seed keeps the test repeatable.
+  // NOLINTNEXTLINE(bugprone-random-generator-seed)
   std::mt19937_64 rng(7);
   std::set<uint64_t> keys;
   while (keys.size() < 10000) {
