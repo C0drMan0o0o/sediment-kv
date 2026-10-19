@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -44,13 +45,13 @@ TEST_F(FileTest, WriteSyncReopenAndReadBackSequentially) {
 
   std::unique_ptr<SequentialFile> file;
   ASSERT_TRUE(NewSequentialFile(Path("a"), &file).ok());
-  char scratch[64];
+  std::array<char, 64> scratch;
   std::string_view result;
-  ASSERT_TRUE(file->Read(5, scratch, &result).ok());
+  ASSERT_TRUE(file->Read(5, scratch.data(), &result).ok());
   EXPECT_EQ(result, "hello");
-  ASSERT_TRUE(file->Read(sizeof(scratch), scratch, &result).ok());
+  ASSERT_TRUE(file->Read(scratch.size(), scratch.data(), &result).ok());
   EXPECT_EQ(result, ", world");
-  ASSERT_TRUE(file->Read(sizeof(scratch), scratch, &result).ok());
+  ASSERT_TRUE(file->Read(scratch.size(), scratch.data(), &result).ok());
   EXPECT_TRUE(result.empty());
 }
 
@@ -65,16 +66,16 @@ TEST_F(FileTest, MultipleAppendsAreConcatenated) {
   EXPECT_EQ(std::filesystem::file_size(Path("a")), 6U);
   std::unique_ptr<RandomAccessFile> reader;
   ASSERT_TRUE(NewRandomAccessFile(Path("a"), &reader).ok());
-  char scratch[8];
+  std::array<char, 8> scratch;
   std::string_view result;
-  ASSERT_TRUE(reader->Read(0, 6, scratch, &result).ok());
+  ASSERT_TRUE(reader->Read(0, 6, scratch.data(), &result).ok());
   EXPECT_EQ(result, "abcdef");
 }
 
 TEST_F(FileTest, LargeAppendRoundTrips) {
-  std::string data(3 << 20, '\0');
+  std::string data(size_t{3} * 1024 * 1024, '\0');
   for (size_t i = 0; i < data.size(); ++i) {
-    data[i] = static_cast<char>(i * 31 + (i >> 8));
+    data[i] = static_cast<char>(i * 31 + i / 256);
   }
   WriteFile("big", data);
 
@@ -97,12 +98,12 @@ TEST_F(FileTest, SequentialSkip) {
   std::unique_ptr<SequentialFile> file;
   ASSERT_TRUE(NewSequentialFile(Path("a"), &file).ok());
   ASSERT_TRUE(file->Skip(4).ok());
-  char scratch[16];
+  std::array<char, 16> scratch;
   std::string_view result;
-  ASSERT_TRUE(file->Read(3, scratch, &result).ok());
+  ASSERT_TRUE(file->Read(3, scratch.data(), &result).ok());
   EXPECT_EQ(result, "456");
   ASSERT_TRUE(file->Skip(100).ok());
-  ASSERT_TRUE(file->Read(3, scratch, &result).ok());
+  ASSERT_TRUE(file->Read(3, scratch.data(), &result).ok());
   EXPECT_TRUE(result.empty());
 }
 
@@ -110,12 +111,12 @@ TEST_F(FileTest, RandomAccessReadsAtOffsets) {
   WriteFile("a", "0123456789");
   std::unique_ptr<RandomAccessFile> file;
   ASSERT_TRUE(NewRandomAccessFile(Path("a"), &file).ok());
-  char scratch[16];
+  std::array<char, 16> scratch;
   std::string_view result;
 
-  ASSERT_TRUE(file->Read(7, 2, scratch, &result).ok());
+  ASSERT_TRUE(file->Read(7, 2, scratch.data(), &result).ok());
   EXPECT_EQ(result, "78");
-  ASSERT_TRUE(file->Read(0, 3, scratch, &result).ok());
+  ASSERT_TRUE(file->Read(0, 3, scratch.data(), &result).ok());
   EXPECT_EQ(result, "012");
 }
 
@@ -123,14 +124,14 @@ TEST_F(FileTest, RandomAccessReadPastEndIsShortNotAnError) {
   WriteFile("a", "0123456789");
   std::unique_ptr<RandomAccessFile> file;
   ASSERT_TRUE(NewRandomAccessFile(Path("a"), &file).ok());
-  char scratch[16];
+  std::array<char, 16> scratch;
   std::string_view result;
 
-  ASSERT_TRUE(file->Read(8, 10, scratch, &result).ok());
+  ASSERT_TRUE(file->Read(8, 10, scratch.data(), &result).ok());
   EXPECT_EQ(result, "89");
-  ASSERT_TRUE(file->Read(10, 4, scratch, &result).ok());
+  ASSERT_TRUE(file->Read(10, 4, scratch.data(), &result).ok());
   EXPECT_TRUE(result.empty());
-  ASSERT_TRUE(file->Read(1000, 4, scratch, &result).ok());
+  ASSERT_TRUE(file->Read(1000, 4, scratch.data(), &result).ok());
   EXPECT_TRUE(result.empty());
 }
 
