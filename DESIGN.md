@@ -83,6 +83,16 @@ varint32 internal_key_len | internal key | varint32 value_len | value
 - `kDeleted` and `kNotFound` must stay distinct. `kNotFound` means "ask the next, older source" (immutable memtable, then SSTables); `kDeleted` means "stop, the key is gone". Collapsing them would resurrect deleted keys.
 - `ApproximateMemoryUsage()` is the arena's total, including slack in partially filled blocks. It grows in 4 KB steps, which is fine for a flush threshold of megabytes.
 
+## Files and durability
+
+`WritableFile`, `SequentialFile` and `RandomAccessFile` (`sediment/file.h`) are thin wrappers over POSIX file descriptors. Every call returns a `Status`; `IOError` messages carry the path and `strerror`.
+
+**Appends are unbuffered.** `WritableFile::Append` goes straight to `write(2)`, retrying on `EINTR` and short writes. Data is then in the operating system's page cache, which survives a process crash (`kill -9`) but not power loss. Only `Sync()` makes it durable.
+
+**The macOS `fsync` caveat.** On macOS, `fsync(2)` only hands data to the drive; the drive may keep it in a volatile write cache and lose it on power failure, so `fsync` does not meet the durability promise `sync_writes` makes. `Sync()` therefore calls `fcntl(fd, F_FULLFSYNC)`, which also flushes the drive's cache. It is slower, and a few file systems reject it, so `Sync()` falls back to `fsync` when `F_FULLFSYNC` fails. On Linux, `fsync(2)` already waits for the device to report the data durable, so it is used directly.
+
+**Not yet handled.** `Sync()` on a newly created file does not sync the parent directory, so the file's directory entry could be lost in a crash. This matters for the manifest and `CURRENT` file and is deferred until they exist.
+
 ## Resources
 
 Background reading on key-value storage engines.
