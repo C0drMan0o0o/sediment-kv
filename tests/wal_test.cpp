@@ -106,7 +106,7 @@ TEST_F(WalWriterTest, ThousandRecordsAreContiguous) {
 }
 
 TEST_F(WalWriterTest, LargeRecordIsOneFrame) {
-  const std::string big(1024 * 1024, 'x');
+  const std::string big(size_t{1024} * 1024, 'x');
   auto writer = NewWriter();
   ASSERT_TRUE(writer->AddRecord("small").ok());
   ASSERT_TRUE(writer->AddRecord(big, true).ok());
