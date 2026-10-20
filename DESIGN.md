@@ -93,6 +93,20 @@ varint32 internal_key_len | internal key | varint32 value_len | value
 
 **Not yet handled.** `Sync()` on a newly created file does not sync the parent directory, so the file's directory entry could be lost in a crash. This matters for the manifest and `CURRENT` file and is deferred until they exist.
 
+## Write-ahead log
+
+`wal::Writer` (`sediment/wal.h`) appends records to a log file. Each record is one frame:
+
+```
+[masked crc32c: 4][length: 4][type: 1][payload: length]
+```
+
+Fixed-width fields are little-endian. The CRC (masked, as in LevelDB) covers the type byte and payload. `type` is always `kFull` (1) today; 0 is reserved so a zero-filled tail from a torn write never parses as a valid record.
+
+**Length-prefixed, not block-fragmented.** LevelDB splits records across 32 KB blocks so a reader can resynchronise at the next block boundary after corruption. Sediment skips that: a record is a single frame of any size, which keeps the writer and reader simple. The cost is that after a bad frame the reader cannot find the next one, so recovery stops at the first damaged record and drops everything after it. That is acceptable because the log is only replayed to rebuild the memtable after a crash, and a torn write can only damage the tail. The `type` byte leaves room to add fragment types later without changing the header.
+
+**Durability.** `AddRecord(payload, sync)` writes the header and payload with two unbuffered appends, then calls `Sync()` only if `sync` is true. After any failed append the log may end in a partial frame, so the writer returns the same error for all later appends rather than writing valid frames behind garbage.
+
 ## Resources
 
 Background reading on key-value storage engines.
