@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -89,8 +90,8 @@ TEST_F(WalWriterTest, EmptyPayloadIsAValidRecord) {
 
 TEST_F(WalWriterTest, ThousandRecordsAreContiguous) {
   auto writer = NewWriter();
-  std::string expected_payloads[1000];
-  for (int i = 0; i < 1000; ++i) {
+  std::array<std::string, 1000> expected_payloads;
+  for (size_t i = 0; i < expected_payloads.size(); ++i) {
     expected_payloads[i] = "record-" + std::to_string(i);
     ASSERT_TRUE(writer->AddRecord(expected_payloads[i], i % 100 == 0).ok());
   }
@@ -105,7 +106,7 @@ TEST_F(WalWriterTest, ThousandRecordsAreContiguous) {
 }
 
 TEST_F(WalWriterTest, LargeRecordIsOneFrame) {
-  const std::string big(1 << 20, 'x');
+  const std::string big(1024 * 1024, 'x');
   auto writer = NewWriter();
   ASSERT_TRUE(writer->AddRecord("small").ok());
   ASSERT_TRUE(writer->AddRecord(big, true).ok());
