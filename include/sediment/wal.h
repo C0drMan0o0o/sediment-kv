@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <string_view>
 
 #include "sediment/file.h"
@@ -48,6 +49,52 @@ class Writer {
  private:
   std::unique_ptr<WritableFile> file_;
   Status error_;
+};
+
+// Why a Reader stopped before the end of the file.
+enum class StopReason : uint8_t {
+  kNone,  // Not stopped, or the log ended cleanly on a frame boundary.
+  kTruncatedHeader,   // The file ends partway through a frame header.
+  kTruncatedPayload,  // The file ends partway through a frame payload.
+  kBadType,      // Unknown or reserved type byte (including a zeroed tail).
+  kBadChecksum,  // The CRC does not match the type and payload.
+  kIOError,      // The underlying read failed; see Reader::status().
+};
+
+// Reads records back from a log file written by Writer.
+//
+// Recovery stops at the first damaged frame: a torn write can only damage the
+// tail, and with length-prefixed frames there is no way to find the next valid
+// one. Everything from that frame on is counted in dropped_bytes() and is never
+// returned. Damage is not an error: ReadRecord() returns false and status()
+// stays OK; status() is non-OK only if the file itself could not be read.
+// Single-threaded.
+class Reader {
+ public:
+  explicit Reader(std::unique_ptr<SequentialFile> file);
+
+  // Read the next intact record into `*record`. Returns false at the end of
+  // the log, at the first damaged frame, or on an I/O error.
+  bool ReadRecord(std::string* record);
+
+  StopReason stop_reason() const { return stop_reason_; }
+
+  // Bytes at and after the first damaged frame, 0 if the log ended cleanly.
+  uint64_t dropped_bytes() const { return dropped_bytes_; }
+
+  const Status& status() const { return status_; }
+
+ private:
+  // Read until `n` bytes arrive or the file ends; returns the count read.
+  // Records an I/O failure in status_.
+  size_t ReadFully(size_t n, char* dst);
+  bool Stop(StopReason reason, uint64_t consumed);
+
+  std::unique_ptr<SequentialFile> file_;
+  Status status_;
+  StopReason stop_reason_ = StopReason::kNone;
+  uint64_t dropped_bytes_ = 0;
+  bool done_ = false;
 };
 
 }  // namespace sediment::wal

@@ -107,6 +107,8 @@ Fixed-width fields are little-endian. The CRC (masked, as in LevelDB) covers the
 
 **Durability.** `AddRecord(payload, sync)` writes the header and payload with two unbuffered appends, then calls `Sync()` only if `sync` is true. After any failed append the log may end in a partial frame, so the writer returns the same error for all later appends rather than writing valid frames behind garbage.
 
+**Reading and torn writes.** `wal::Reader` returns records in order and stops at the first frame that is damaged: a short header, a short payload, a reserved or unknown type byte (a zero-filled tail lands here), or a CRC mismatch. It never returns a damaged record. After stopping it reads the rest of the file so `dropped_bytes()` reports exactly how much was discarded, and `stop_reason()` says why. Damage is not an error (`status()` stays OK), because a torn tail is the expected result of a crash; only a failing `read(2)` sets a non-OK status. Payloads are read in 64 KB chunks, so a corrupted length field on a small file ends in a short read instead of a multi-gigabyte allocation.
+
 ## Resources
 
 Background reading on key-value storage engines.
