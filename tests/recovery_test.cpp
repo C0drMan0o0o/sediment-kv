@@ -33,7 +33,9 @@ class RecoveryTest : public testing::Test {
     std::unique_ptr<WritableFile> file;
     ASSERT_TRUE(NewWritableFile(Path(), &file).ok());
     wal::Writer writer(std::move(file));
-    for (const auto& p : payloads) ASSERT_TRUE(writer.AddRecord(p).ok());
+    for (const auto& p : payloads) {
+      ASSERT_TRUE(writer.AddRecord(p).ok());
+    }
     ASSERT_TRUE(writer.Close().ok());
   }
 

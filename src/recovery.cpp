@@ -13,8 +13,12 @@ namespace {
 Status GetLengthPrefixed(std::string_view* input, std::string_view* result) {
   uint32_t len = 0;
   Status s = GetVarint32(input, &len);
-  if (!s.ok()) return s;
-  if (input->size() < len) return Status::Corruption("truncated log entry");
+  if (!s.ok()) {
+    return s;
+  }
+  if (input->size() < len) {
+    return Status::Corruption("truncated log entry");
+  }
   *result = input->substr(0, len);
   input->remove_prefix(len);
   return Status::OK();
@@ -24,11 +28,15 @@ Status DecodeLogEntry(std::string_view input, SequenceNumber* sequence,
                       ValueType* type, std::string_view* key,
                       std::string_view* value) {
   Status s = GetFixed64(&input, sequence);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   if (*sequence > kMaxSequenceNumber) {
     return Status::Corruption("log entry sequence out of range");
   }
-  if (input.empty()) return Status::Corruption("truncated log entry");
+  if (input.empty()) {
+    return Status::Corruption("truncated log entry");
+  }
   const auto raw_type = static_cast<uint8_t>(input.front());
   input.remove_prefix(1);
   if (raw_type > static_cast<uint8_t>(ValueType::kValue)) {
@@ -36,10 +44,16 @@ Status DecodeLogEntry(std::string_view input, SequenceNumber* sequence,
   }
   *type = static_cast<ValueType>(raw_type);
   s = GetLengthPrefixed(&input, key);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
   s = GetLengthPrefixed(&input, value);
-  if (!s.ok()) return s;
-  if (!input.empty()) return Status::Corruption("trailing bytes in log entry");
+  if (!s.ok()) {
+    return s;
+  }
+  if (!input.empty()) {
+    return Status::Corruption("trailing bytes in log entry");
+  }
   return Status::OK();
 }
 
@@ -60,7 +74,9 @@ Status RecoverFromLog(const std::string& path, MemTable* memtable,
   *stats = RecoveryStats();
   std::unique_ptr<SequentialFile> file;
   Status s = NewSequentialFile(path, &file);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   wal::Reader reader(std::move(file));
   std::string record;
@@ -70,10 +86,14 @@ Status RecoverFromLog(const std::string& path, MemTable* memtable,
     std::string_view key;
     std::string_view value;
     s = DecodeLogEntry(record, &sequence, &type, &key, &value);
-    if (!s.ok()) return s;
+    if (!s.ok()) {
+      return s;
+    }
     memtable->Add(sequence, type, key, value);
     ++stats->records;
-    if (sequence > stats->last_sequence) stats->last_sequence = sequence;
+    if (sequence > stats->last_sequence) {
+      stats->last_sequence = sequence;
+    }
   }
   stats->dropped_bytes = reader.dropped_bytes();
   stats->stop_reason = reader.stop_reason();
