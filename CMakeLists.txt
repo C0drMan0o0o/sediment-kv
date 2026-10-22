@@ -33,6 +33,9 @@ add_library(sediment STATIC src/sediment.cpp src/status.cpp src/coding.cpp src/a
 target_include_directories(sediment PUBLIC include)
 target_link_libraries(sediment PRIVATE sediment_warnings)
 
+add_executable(crash_demo tools/crash_demo.cpp)
+target_link_libraries(crash_demo PRIVATE sediment sediment_warnings)
+
 include(CTest)
 if(BUILD_TESTING)
   include(FetchContent)
