@@ -119,7 +119,14 @@ A WAL record holds one write:
 
 `RecoverFromLog` (`sediment/recovery.h`) replays the log into a memtable in order and returns `RecoveryStats`: entries applied, the highest sequence seen (where the next write continues from), and the bytes dropped at a damaged tail with the reason. A torn tail is expected after a crash and is not an error. An intact frame (CRC verified) whose entry will not decode is `Corruption`, because a torn write cannot produce a valid CRC over bad contents.
 
-**Kill test.** `tools/kill_recover.sh` runs `crash_demo write`, which appends synced puts and prints `ack <n>` once each is durable. The script sends `kill -9` after a random 20-220 ms, then `crash_demo verify` replays the log and checks that every acknowledged write was recovered with the right value. Recovering one more write than was acknowledged is fine: the process can die after the sync but before the print. `kill -9` only proves the log survives a process crash, since the page cache outlives the process; surviving power loss needs the fault-injecting file layer.
+**Kill test.** To run it (100 iterations here):
+
+```bash
+cmake -S . -B build && cmake --build build
+tools/kill_recover.sh build/crash_demo 100
+```
+
+`tools/kill_recover.sh` runs `crash_demo write`, which appends synced puts and prints `ack <n>` once each is durable. The script sends `kill -9` after a random 20-220 ms, then `crash_demo verify` replays the log and checks that every acknowledged write was recovered with the right value. Recovering one more write than was acknowledged is fine: the process can die after the sync but before the print. `kill -9` only proves the log survives a process crash, since the page cache outlives the process; surviving power loss needs the fault-injecting file layer.
 
 ## Resources
 
