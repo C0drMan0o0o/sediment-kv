@@ -109,6 +109,18 @@ Fixed-width fields are little-endian. The CRC (masked, as in LevelDB) covers the
 
 **Reading and torn writes.** `wal::Reader` returns records in order and stops at the first frame that is damaged: a short header, a short payload, a reserved or unknown type byte (a zero-filled tail lands here), or a CRC mismatch. It never returns a damaged record. After stopping it reads the rest of the file so `dropped_bytes()` reports exactly how much was discarded, and `stop_reason()` says why. Damage is not an error (`status()` stays OK), because a torn tail is the expected result of a crash; only a failing `read(2)` sets a non-OK status. Payloads are read in 64 KB chunks, so a corrupted length field on a small file ends in a short read instead of a multi-gigabyte allocation.
 
+## Recovery
+
+A WAL record holds one write:
+
+```
+[sequence: fixed64][type: 1][key_len: varint32][key][value_len: varint32][value]
+```
+
+`RecoverFromLog` (`sediment/recovery.h`) replays the log into a memtable in order and returns `RecoveryStats`: entries applied, the highest sequence seen (where the next write continues from), and the bytes dropped at a damaged tail with the reason. A torn tail is expected after a crash and is not an error. An intact frame (CRC verified) whose entry will not decode is `Corruption`, because a torn write cannot produce a valid CRC over bad contents.
+
+**Kill test.** `tools/kill_recover.sh` runs `crash_demo write`, which appends synced puts and prints `ack <n>` once each is durable. The script sends `kill -9` after a random 20-220 ms, then `crash_demo verify` replays the log and checks that every acknowledged write was recovered with the right value. Recovering one more write than was acknowledged is fine: the process can die after the sync but before the print. `kill -9` only proves the log survives a process crash, since the page cache outlives the process; surviving power loss needs the fault-injecting file layer.
+
 ## Resources
 
 Background reading on key-value storage engines.
