@@ -34,6 +34,7 @@ BlockReader::BlockReader(std::string_view contents, KeyComparator comparator)
   const size_t crc_pos = contents.size() - kFixed32Size;
   const uint32_t stored =
       crc32c::Unmask(DecodeFixed32At(contents.data() + crc_pos));
+  // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage): length passed.
   if (stored != crc32c::Value(contents.data(), crc_pos)) {
     status_ = Status::Corruption("block checksum mismatch");
     return;
@@ -98,7 +99,7 @@ bool BlockReader::Iterator::ParseNext() {
     return false;
   }
   key_.resize(shared);
-  key_.append(in.data(), non_shared);
+  key_.append(in.substr(0, non_shared));
   value_ = in.substr(non_shared, value_length);
   next_ = static_cast<size_t>(in.data() + non_shared + value_length -
                               entries.data());

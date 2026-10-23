@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <map>
 #include <random>
@@ -29,9 +30,9 @@ std::string Build(const Entries& entries, int restart_interval) {
 Entries SortedEntries(int n) {
   Entries entries;
   for (int i = 0; i < n; ++i) {
-    char key[32];
-    std::snprintf(key, sizeof(key), "key%08d", i * 2);  // gaps for misses
-    entries.emplace_back(key, "value" + std::to_string(i));
+    std::array<char, 32> key{};
+    std::snprintf(key.data(), key.size(), "key%08d", i * 2);  // gaps for misses
+    entries.emplace_back(key.data(), "value" + std::to_string(i));
   }
   return entries;
 }
@@ -120,6 +121,8 @@ TEST(BlockReader, EveryKeyInTenThousandEntryBlockIsFound) {
 }
 
 TEST(BlockReader, RandomSeeksMatchSortedVectorOracle) {
+  // A fixed seed keeps the test repeatable.
+  // NOLINTNEXTLINE(bugprone-random-generator-seed)
   std::mt19937 rng(42);
   for (int round = 0; round < 20; ++round) {
     std::map<std::string, std::string> sorted;
@@ -175,7 +178,7 @@ TEST(BlockReader, CustomComparatorIsUsed) {
     return b.compare(a);
   };
   Entries entries = SortedEntries(30);
-  std::reverse(entries.begin(), entries.end());
+  std::ranges::reverse(entries);
   const std::string block = Build(entries, 4);
   BlockReader reader(block, reverse);
   auto it = reader.NewIterator();
@@ -188,7 +191,7 @@ TEST(BlockReader, FlippedByteIsCorruption) {
   const std::string good = Build(SortedEntries(20), 4);
   for (size_t pos = 0; pos < good.size(); ++pos) {
     std::string bad = good;
-    bad[pos] = static_cast<char>(bad[pos] ^ 0x01);
+    bad[pos] = static_cast<char>(static_cast<unsigned char>(bad[pos]) ^ 0x01U);
     BlockReader reader(bad);
     ASSERT_TRUE(reader.status().IsCorruption()) << "byte " << pos;
     auto it = reader.NewIterator();
