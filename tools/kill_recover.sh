@@ -2,17 +2,30 @@
 # Repeatedly write to a log, kill -9 the writer at a random moment, then check
 # that every acknowledged write is recovered.
 #
-#   tools/kill_recover.sh <path-to-crash_demo> [iterations]
+#   tools/kill_recover.sh <path-to-crash_demo> [iterations] [sync|nosync]
+#
+# In nosync mode the writer never blocks in fsync, so kills often land between
+# a frame's header and payload writes. The run then also fails unless at least
+# one iteration recovered past a torn tail, so the torn-tail path is exercised.
+# kill -9 leaves the page cache intact, so acknowledged writes must still
+# survive in either mode.
 set -euo pipefail
 
-demo=${1:?usage: kill_recover.sh <path-to-crash_demo> [iterations]}
+demo=${1:?usage: kill_recover.sh <path-to-crash_demo> [iterations] [sync|nosync]}
 iterations=${2:-100}
+mode=${3:-sync}
+case $mode in
+  sync) write_args=() ;;
+  nosync) write_args=(nosync) ;;
+  *) echo "mode must be sync or nosync" >&2; exit 2 ;;
+esac
+torn=0
 dir=$(mktemp -d)
 trap 'rm -rf "$dir"' EXIT
 
 for ((i = 1; i <= iterations; i++)); do
   rm -f "$dir/wal" "$dir/acks"
-  "$demo" write "$dir/wal" >"$dir/acks" &
+  "$demo" write "$dir/wal" ${write_args[@]+"${write_args[@]}"} >"$dir/acks" &
   pid=$!
   # Wait for the first acknowledgement so slow process start-up is not
   # mistaken for a crash.
@@ -29,5 +42,10 @@ for ((i = 1; i <= iterations; i++)); do
     exit 1
   fi
   echo "iteration $i: $out"
+  [[ $out != *"dropped 0 bytes"* ]] && torn=$((torn + 1))
 done
-echo "all $iterations iterations passed"
+if [[ $mode == nosync && $torn -eq 0 ]]; then
+  echo "no torn tail seen in $iterations iterations; test did not exercise it" >&2
+  exit 1
+fi
+echo "all $iterations iterations passed ($torn with a torn tail)"

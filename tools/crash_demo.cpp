@@ -1,7 +1,12 @@
 // Crash-recovery demo driver.
 //
-//   crash_demo write <wal>     Append synced puts forever, printing "ack <n>"
-//                              after each one is durable. Meant to be killed.
+//   crash_demo write <wal> [nosync]
+//                              Append puts forever, printing "ack <n>" after
+//                              each one is appended. Puts are synced unless
+//                              "nosync" is given, which keeps the writer out
+//                              of fsync so a kill can land between the header
+//                              and payload writes and leave a torn tail.
+//                              Meant to be killed.
 //   crash_demo verify <wal> <acked>
 //                              Replay the log and check that every one of the
 //                              first <acked> writes survived with its value.
@@ -28,7 +33,7 @@ std::string ValueFor(uint64_t i) {
   return "value" + std::to_string(i);
 }
 
-int Write(const std::string& path) {
+int Write(const std::string& path, bool sync) {
   std::unique_ptr<sediment::WritableFile> file;
   sediment::Status s = sediment::NewWritableFile(path, &file);
   if (!s.ok()) {
@@ -40,7 +45,7 @@ int Write(const std::string& path) {
     std::string entry;
     sediment::EncodeLogEntry(&entry, i, sediment::ValueType::kValue, KeyFor(i),
                              ValueFor(i));
-    s = writer.AddRecord(entry, /*sync=*/true);
+    s = writer.AddRecord(entry, sync);
     if (!s.ok()) {
       std::fprintf(stderr, "%s\n", s.ToString().c_str());
       return 1;
@@ -89,7 +94,11 @@ int main(int argc, char** argv) {
   // recover from that, so report it and exit non-zero.
   try {
     if (argc == 3 && std::string(argv[1]) == "write") {
-      return Write(argv[2]);
+      return Write(argv[2], /*sync=*/true);
+    }
+    if (argc == 4 && std::string(argv[1]) == "write" &&
+        std::string(argv[3]) == "nosync") {
+      return Write(argv[2], /*sync=*/false);
     }
     if (argc == 4 && std::string(argv[1]) == "verify") {
       return Verify(argv[2], std::strtoull(argv[3], nullptr, 10));
@@ -100,6 +109,7 @@ int main(int argc, char** argv) {
   }
   std::fprintf(
       stderr,
-      "usage: crash_demo write <wal> | crash_demo verify <wal> <acked>\n");
+      "usage: crash_demo write <wal> [nosync] | crash_demo verify <wal> "
+      "<acked>\n");
   return 2;
 }
