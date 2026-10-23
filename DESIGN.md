@@ -128,6 +128,12 @@ tools/kill_recover.sh build/crash_demo 100
 
 `tools/kill_recover.sh` runs `crash_demo write`, which appends synced puts and prints `ack <n>` once each is durable. The script sends `kill -9` after a random 20-220 ms, then `crash_demo verify` replays the log and checks that every acknowledged write was recovered with the right value. Recovering one more write than was acknowledged is fine: the process can die after the sync but before the print. `kill -9` only proves the log survives a process crash, since the page cache outlives the process; surviving power loss needs the fault-injecting file layer.
 
+## SSTable blocks
+
+A data block holds sorted entries with shared-prefix compression, in the LevelDB layout. Each entry is `[shared][non_shared][value_length]` as varint32s, then the key suffix and the value. Every 16th entry (the restart interval) stores its key in full and its offset goes into the restart array, so a reader can binary search the restarts and then scan at most 16 entries.
+
+The block ends with the restart offsets (fixed32 each), the restart count (fixed32) and a masked CRC32C over everything before it. `BlockBuilder` compares nothing: the caller adds keys in comparator order, and prefix sharing is bytewise.
+
 ## Resources
 
 Background reading on key-value storage engines.
