@@ -124,15 +124,20 @@ A WAL record holds one write:
 ```bash
 cmake -S . -B build && cmake --build build
 tools/kill_recover.sh build/crash_demo 100
+tools/kill_recover.sh build/crash_demo 100 nosync
 ```
 
 `tools/kill_recover.sh` runs `crash_demo write`, which appends synced puts and prints `ack <n>` once each is durable. The script sends `kill -9` after a random 20-220 ms, then `crash_demo verify` replays the log and checks that every acknowledged write was recovered with the right value. Recovering one more write than was acknowledged is fine: the process can die after the sync but before the print. `kill -9` only proves the log survives a process crash, since the page cache outlives the process; surviving power loss needs the fault-injecting file layer.
+
+The default `sync` mode rarely produces a torn tail: the writer spends its time blocked in `fsync`, so a kill seldom lands between a frame's header and payload writes (3 in 1000 iterations in one run). `nosync` mode keeps the writer out of `fsync`, so kills often land mid-frame (38 in 100 in one run). The run then also fails unless at least one iteration recovered past a torn tail, which shows the torn-tail path was exercised.
 
 ## SSTable blocks
 
 A data block holds sorted entries with shared-prefix compression, in the LevelDB layout. Each entry is `[shared][non_shared][value_length]` as varint32s, then the key suffix and the value. Every 16th entry (the restart interval) stores its key in full and its offset goes into the restart array, so a reader can binary search the restarts and then scan at most 16 entries.
 
 The block ends with the restart offsets (fixed32 each), the restart count (fixed32) and a masked CRC32C over everything before it. `BlockBuilder` compares nothing: the caller adds keys in comparator order, and prefix sharing is bytewise.
+
+**Reading.** `BlockReader` is a non-owning view over a finished block; the bytes must outlive it and its iterators. Opening it verifies the CRC and that the restart count fits in the block, so a flipped byte or truncation gives `Corruption` and iterators are never valid. `Seek` binary-searches the restart points (each holds a full key, so it can be compared directly) for the last one below the target, then scans forward at most one restart interval. `SeekToFirst` and `Next` decode entries in order, rebuilding each key from the previous one's shared prefix. An entry whose lengths run past the block ends iteration with `Corruption` instead of reading out of bounds. The comparator is a function pointer defaulting to bytewise, and it must order keys the way the block's writer did.
 
 ## Resources
 
