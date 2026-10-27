@@ -26,9 +26,15 @@ Status Footer::DecodeFrom(std::string_view input, Footer* footer) {
   uint32_t version = 0;
   uint64_t magic = 0;
   Status s = GetFixed64(&input, &result.index_handle.offset);
-  if (s.ok()) s = GetFixed64(&input, &result.index_handle.size);
-  if (s.ok()) s = GetFixed32(&input, &version);
-  if (s.ok()) s = GetFixed64(&input, &magic);
+  if (s.ok()) {
+    s = GetFixed64(&input, &result.index_handle.size);
+  }
+  if (s.ok()) {
+    s = GetFixed32(&input, &version);
+  }
+  if (s.ok()) {
+    s = GetFixed64(&input, &magic);
+  }
   if (!s.ok()) {
     return s;
   }
@@ -134,8 +140,12 @@ Status WriteMemTableToTable(const MemTable& memtable,
     builder.Add(it.key(), it.value());
   }
   s = builder.Finish();
-  if (s.ok()) s = file->Sync();
-  if (s.ok()) s = file->Close();
+  if (s.ok()) {
+    s = file->Sync();
+  }
+  if (s.ok()) {
+    s = file->Close();
+  }
   if (!s.ok()) {
     return s;
   }

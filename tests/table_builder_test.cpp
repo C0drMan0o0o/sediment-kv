@@ -154,7 +154,7 @@ TEST(Footer, RejectsBadLengthMagicAndVersion) {
   EXPECT_TRUE(Footer::DecodeFrom(encoded + "x", &out).IsCorruption());
 
   std::string bad_magic = encoded;
-  bad_magic[27] ^= 0x01;
+  bad_magic[27] = static_cast<char>(bad_magic[27] + 1);
   EXPECT_TRUE(Footer::DecodeFrom(bad_magic, &out).IsCorruption());
 
   std::string bad_version = encoded;
