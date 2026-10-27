@@ -139,6 +139,22 @@ The block ends with the restart offsets (fixed32 each), the restart count (fixed
 
 **Reading.** `BlockReader` is a non-owning view over a finished block; the bytes must outlive it and its iterators. Opening it verifies the CRC and that the restart count fits in the block, so a flipped byte or truncation gives `Corruption` and iterators are never valid. `Seek` binary-searches the restart points (each holds a full key, so it can be compared directly) for the last one below the target, then scans forward at most one restart interval. `SeekToFirst` and `Next` decode entries in order, rebuilding each key from the previous one's shared prefix. An entry whose lengths run past the block ends iteration with `Corruption` instead of reading out of bounds. The comparator is a function pointer defaulting to bytewise, and it must order keys the way the block's writer did.
 
+## SSTable files
+
+A table file is the data blocks back to back, then one index block, then a fixed 28-byte footer:
+
+```
+[data block 0] ... [data block N-1] [index block] [footer]
+```
+
+Every block is a `BlockBuilder` block, so each carries its own CRC and there is no separate per-block trailer. `TableBuilder` appends entries to the current data block and finishes it once it reaches `block_size` (4 KB by default). The block is then written and its position recorded as a handle (`offset`, `size`, where `size` includes the block's CRC).
+
+The index block has one entry per data block: the key is the block's last key, the value is the handle as two varint64s. A reader can binary search the index for the first block whose last key is >= the target, and read only that block. LevelDB shortens these keys to the shortest separator between neighbouring blocks to save space; Sediment stores the exact last key, which is simpler and costs little at 4 KB blocks.
+
+The footer holds the index handle (two fixed64s), a format version (fixed32) and a magic number (fixed64, which spells `sediment` in the file). A reader seeks to `file_size - 28`, so it needs nothing else to find the index. A wrong length, magic number or version is `Corruption`.
+
+`TableBuilder` records the smallest and largest key and the entry count, which the version set will need for file metadata. Keys must arrive in strictly increasing order. The builder does not sync or close the file; `WriteMemTableToTable` does that after `Finish()`, so a memtable flush can treat a successful return as durable. Table keys are encoded internal keys, so tombstones and older versions are written as they are; hiding them is the job of the read path and compaction.
+
 ## Resources
 
 Background reading on key-value storage engines.
