@@ -29,7 +29,7 @@ endif()
 add_library(sediment_warnings INTERFACE)
 target_compile_options(sediment_warnings INTERFACE -Wall -Wextra -Wpedantic -Werror)
 
-add_library(sediment STATIC src/sediment.cpp src/status.cpp src/coding.cpp src/arena.cpp src/internal_key.cpp src/memtable.cpp src/crc32c.cpp src/file.cpp src/wal.cpp src/recovery.cpp src/block_builder.cpp src/block_reader.cpp)
+add_library(sediment STATIC src/sediment.cpp src/status.cpp src/coding.cpp src/arena.cpp src/internal_key.cpp src/memtable.cpp src/crc32c.cpp src/file.cpp src/wal.cpp src/recovery.cpp src/block_builder.cpp src/block_reader.cpp src/table_builder.cpp)
 target_include_directories(sediment PUBLIC include)
 target_link_libraries(sediment PRIVATE sediment_warnings)
 
