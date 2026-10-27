@@ -3,6 +3,8 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace sediment {
 namespace {
@@ -120,6 +122,30 @@ TEST(MemTable, ApproximateMemoryGrows) {
   }
   // Usage must cover the payload: 2000 entries of >100 bytes each.
   EXPECT_GT(mem.ApproximateMemoryUsage(), empty + size_t{1999} * 100);
+}
+
+TEST(MemTable, IteratorYieldsInternalKeyOrder) {
+  MemTable mem;
+  MemTable::Iterator empty(&mem);
+  empty.SeekToFirst();
+  EXPECT_FALSE(empty.Valid());
+
+  mem.Add(1, ValueType::kValue, "b", "old");
+  mem.Add(2, ValueType::kValue, "a", "x");
+  mem.Add(3, ValueType::kValue, "b", "new");
+
+  MemTable::Iterator it(&mem);
+  std::vector<std::pair<std::string, std::string>> got;
+  for (it.SeekToFirst(); it.Valid(); it.Next()) {
+    ParsedInternalKey parsed;
+    ASSERT_TRUE(ParseInternalKey(it.key(), &parsed).ok());
+    got.emplace_back(
+        std::string(parsed.user_key) + "@" + std::to_string(parsed.sequence),
+        std::string(it.value()));
+  }
+  const std::vector<std::pair<std::string, std::string>> expected = {
+      {"a@2", "x"}, {"b@3", "new"}, {"b@1", "old"}};
+  EXPECT_EQ(got, expected);
 }
 
 }  // namespace

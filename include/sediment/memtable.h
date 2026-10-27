@@ -22,6 +22,8 @@ class MemTable {
     kNotFound,  // no version of the key is visible here
   };
 
+  class Iterator;
+
   MemTable();
   MemTable(const MemTable&) = delete;
   MemTable& operator=(const MemTable&) = delete;
@@ -50,6 +52,27 @@ class MemTable {
 
   Arena arena_;
   Table table_;
+};
+
+// Ordered iteration over every entry, as encoded internal keys (see
+// internal_key.h) in CompareInternalKeys order. key() and value() view the
+// arena and stay valid for the life of the memtable. Not safe to use while
+// another thread calls Add().
+class MemTable::Iterator {
+ public:
+  explicit Iterator(const MemTable* memtable) : it_(&memtable->table_) {}
+
+  bool Valid() const { return it_.Valid(); }
+  void SeekToFirst() { it_.SeekToFirst(); }
+  // Requires: Valid().
+  void Next() { it_.Next(); }
+  // Requires: Valid().
+  std::string_view key() const;
+  // Requires: Valid().
+  std::string_view value() const;
+
+ private:
+  Table::Iterator it_;
 };
 
 }  // namespace sediment
