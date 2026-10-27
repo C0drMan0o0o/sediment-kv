@@ -91,4 +91,16 @@ MemTable::GetResult MemTable::Get(std::string_view key, SequenceNumber sequence,
   return GetResult::kFound;
 }
 
+std::string_view MemTable::Iterator::key() const {
+  const char* key_end = nullptr;
+  return GetLengthPrefixed(it_.key(), &key_end);
+}
+
+std::string_view MemTable::Iterator::value() const {
+  const char* key_end = nullptr;
+  GetLengthPrefixed(it_.key(), &key_end);
+  const char* value_end = nullptr;
+  return GetLengthPrefixed(key_end, &value_end);
+}
+
 }  // namespace sediment
