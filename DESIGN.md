@@ -155,6 +155,8 @@ The footer holds the index handle (two fixed64s), a format version (fixed32) and
 
 `TableBuilder` records the smallest and largest key and the entry count, which the version set will need for file metadata. Keys must arrive in strictly increasing order. The builder does not sync or close the file; `WriteMemTableToTable` does that after `Finish()`, so a memtable flush can treat a successful return as durable. Table keys are encoded internal keys, so tombstones and older versions are written as they are; hiding them is the job of the read path and compaction.
 
+**Reading a table.** `Table::Open` reads the footer from the last 28 bytes, then the whole index block into memory; a bad footer or an index block that fails its CRC fails the open. `Table::Get` binary searches the index for the first block whose last key is >= the target, reads only that block, and checks its CRC through `BlockReader` before searching it. Handles are bounds-checked against the data area, so a corrupt offset or a truncated file gives `Corruption` instead of a stray read. `Get` matches the key exactly; ordered seeks across blocks arrive with the table iterator.
+
 ## Resources
 
 Background reading on key-value storage engines.
