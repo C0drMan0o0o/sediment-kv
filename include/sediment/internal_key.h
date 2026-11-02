@@ -16,7 +16,8 @@ inline constexpr SequenceNumber kMaxSequenceNumber =
     (uint64_t{1} << (64 - kTagTypeBits)) - 1;
 
 // The numeric values are part of the on-disk format; do not reorder.
-// A delete sorts before a put at the same sequence number.
+// Tags sort descending, so at the same sequence number a put (1) sorts before
+// a delete (0).
 enum class ValueType : uint8_t {
   kDeletion = 0,
   kValue = 1,
