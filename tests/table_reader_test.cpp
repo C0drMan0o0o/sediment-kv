@@ -158,6 +158,22 @@ TEST_F(TableReaderTest, ReadsMemTableFlushedByInternalKey) {
   EXPECT_TRUE(table->Get(key, &value).IsNotFound());
 }
 
+TEST_F(TableReaderTest, LookupKeyShorterThanTagIsNotFound) {
+  MemTable memtable;
+  memtable.Add(1, ValueType::kValue, "ab", "v");
+  TableInfo info;
+  ASSERT_TRUE(WriteMemTableToTable(memtable, {}, Path("t.sst"), &info).ok());
+  std::unique_ptr<Table> table;
+  ASSERT_TRUE(OpenTable(&table, CompareInternalKeys).ok());
+
+  // A bare user key instead of an internal key, in a heap buffer of exactly
+  // its size so ASan catches any read outside it.
+  const std::vector<char> key = {'a', 'b'};
+  std::string value;
+  EXPECT_TRUE(table->Get(std::string_view(key.data(), key.size()), &value)
+                  .IsNotFound());
+}
+
 TEST_F(TableReaderTest, FlippedDataByteIsCorruption) {
   BuildTable(SortedEntries(100), 256);
   FlipByte(10);  // inside the first data block

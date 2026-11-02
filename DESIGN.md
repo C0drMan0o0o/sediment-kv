@@ -55,6 +55,7 @@ internal key = user_key bytes | fixed64 LE ( sequence << 8 | type )
 
 - `sequence` is a 56-bit number assigned to each write, increasing. `type` is `kValue` (1) or `kDeletion` (0). The numeric values are part of the on-disk format.
 - Ordering: user key ascending (bytewise), then sequence **descending**, so the newest version of a key comes first. A lookup seeks to `(key, read_sequence)` and the first entry at or after it is the newest version visible to that reader.
+- The comparator never reads outside its arguments. Keys reach it from SSTable blocks and from callers, so a corrupt file or a bare user key passed by mistake can hand it fewer than 8 bytes. That input compares as a user key with tag 0 (sequence 0, `kDeletion`) instead of being read out of bounds. This keeps the ordering consistent, and a short key sorts after every real version of the same bytes. A comparator cannot return an error, so reporting the malformed key is left to `ParseInternalKey`.
 - A delete is a `kDeletion` entry (a tombstone), not a removal. It must outlive the values it hides, because older versions may still sit in lower levels. Dropping tombstones is a compaction decision.
 - Sequence numbers are what make snapshots possible later: a reader pins a sequence and ignores anything newer.
 
