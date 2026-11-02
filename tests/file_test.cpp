@@ -162,5 +162,17 @@ TEST_F(FileTest, UseAfterCloseReturnsInvalidArgumentAndCloseIsIdempotent) {
   EXPECT_TRUE(file->Sync().IsInvalidArgument());
 }
 
+#ifdef __APPLE__
+// /dev/null rejects F_FULLFSYNC with ENODEV but accepts fsync, so Sync() must
+// fall back rather than report the rejection as a failure.
+TEST_F(FileTest, SyncFallsBackToFsyncWhenFullFsyncIsUnsupported) {
+  std::unique_ptr<WritableFile> file;
+  ASSERT_TRUE(NewWritableFile("/dev/null", &file).ok());
+  ASSERT_TRUE(file->Append("x").ok());
+  EXPECT_TRUE(file->Sync().ok());
+  EXPECT_TRUE(file->Close().ok());
+}
+#endif
+
 }  // namespace
 }  // namespace sediment

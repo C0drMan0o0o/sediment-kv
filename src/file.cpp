@@ -55,9 +55,19 @@ Status SyncFd(const PosixFd& file) {
 #ifdef __APPLE__
   // On macOS fsync(2) only pushes data to the drive, which may keep it in a
   // volatile write cache. F_FULLFSYNC asks the drive to flush that cache too.
-  // It is unsupported on some file systems, so fall back to fsync there.
-  if (::fcntl(file.fd(), F_FULLFSYNC) == 0) {
+  // Some file systems and devices reject it (/dev/null with ENODEV, for
+  // example), so fall back to fsync there. Errors meaning the data did not
+  // reach storage are returned instead: a later fsync could succeed and report
+  // writes as durable that were lost.
+  int rc = 0;
+  do {
+    rc = ::fcntl(file.fd(), F_FULLFSYNC);
+  } while (rc != 0 && errno == EINTR);
+  if (rc == 0) {
     return Status::OK();
+  }
+  if (errno == EIO || errno == ENOSPC || errno == EDQUOT) {
+    return PosixError(file.path(), errno);
   }
 #endif
   while (::fsync(file.fd()) != 0) {
