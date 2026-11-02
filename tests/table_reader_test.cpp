@@ -77,9 +77,9 @@ class TableReaderTest : public testing::Test {
     f.seekg(static_cast<std::streamoff>(offset));
     char c = 0;
     f.get(c);
-    c = static_cast<char>(c ^ 0x01);
+    const auto flipped = static_cast<unsigned char>(c) ^ 0x01U;
     f.seekp(static_cast<std::streamoff>(offset));
-    f.put(c);
+    f.put(static_cast<char>(flipped));
   }
 
   std::filesystem::path dir_;
@@ -143,15 +143,18 @@ TEST_F(TableReaderTest, ReadsMemTableFlushedByInternalKey) {
   ASSERT_TRUE(OpenTable(&table, CompareInternalKeys).ok());
   std::string value;
   std::string key;
-  AppendInternalKey(&key, {"apple", 1, ValueType::kValue});
+  AppendInternalKey(
+      &key, {.user_key = "apple", .sequence = 1, .type = ValueType::kValue});
   ASSERT_TRUE(table->Get(key, &value).ok());
   EXPECT_EQ(value, "red");
   key.clear();
-  AppendInternalKey(&key, {"cherry", 3, ValueType::kValue});
+  AppendInternalKey(
+      &key, {.user_key = "cherry", .sequence = 3, .type = ValueType::kValue});
   ASSERT_TRUE(table->Get(key, &value).ok());
   EXPECT_EQ(value, "dark");
   key.clear();
-  AppendInternalKey(&key, {"cherry", 2, ValueType::kValue});
+  AppendInternalKey(
+      &key, {.user_key = "cherry", .sequence = 2, .type = ValueType::kValue});
   EXPECT_TRUE(table->Get(key, &value).IsNotFound());
 }
 
