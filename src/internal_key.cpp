@@ -17,8 +17,12 @@ uint64_t PackTag(SequenceNumber sequence, ValueType type) {
   return (sequence << kTagTypeBits) | static_cast<uint64_t>(type);
 }
 
+// Tag 0 for input too short to hold one; see ExtractUserKey.
 uint64_t DecodeTag(std::string_view internal_key) {
   uint64_t tag = 0;
+  if (internal_key.size() < kTagBytes) {
+    return tag;
+  }
   const char* p = internal_key.data() + internal_key.size() - kTagBytes;
   for (size_t i = 0; i < kTagBytes; ++i) {
     tag |= static_cast<uint64_t>(static_cast<uint8_t>(p[i])) << (8 * i);
@@ -49,7 +53,9 @@ Status ParseInternalKey(std::string_view input, ParsedInternalKey* result) {
 }
 
 std::string_view ExtractUserKey(std::string_view internal_key) {
-  assert(internal_key.size() >= kTagBytes);
+  if (internal_key.size() < kTagBytes) {
+    return internal_key;
+  }
   return internal_key.substr(0, internal_key.size() - kTagBytes);
 }
 

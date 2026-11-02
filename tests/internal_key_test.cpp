@@ -90,6 +90,46 @@ TEST(InternalKey, DeletionSortsAfterPutAtSameSequence) {
             0);
 }
 
+// Copy `bytes` into a heap buffer of exactly that size, so a read before or
+// after it is a heap-buffer-overflow under ASan.
+std::vector<char> HeapBytes(std::string_view bytes) {
+  return {bytes.begin(), bytes.end()};
+}
+
+std::string_view View(const std::vector<char>& v) {
+  return {v.data(), v.size()};
+}
+
+TEST(InternalKey, ExtractUserKeyOfShortInputIsTheWholeInput) {
+  const auto empty = HeapBytes("");
+  const auto short_key = HeapBytes("1234567");
+  EXPECT_EQ(ExtractUserKey(View(empty)), "");
+  EXPECT_EQ(ExtractUserKey(View(short_key)), "1234567");
+}
+
+TEST(InternalKey, ShortInputComparesAsTagZero) {
+  const auto ab = HeapBytes("ab");
+  const auto ab_again = HeapBytes("ab");
+  const auto b = HeapBytes("b");
+  const auto empty = HeapBytes("");
+  // Same bytes as a real version's user key: tag 0 sorts after every version
+  // with a non-zero tag.
+  EXPECT_GT(CompareInternalKeys(View(ab), Encode("ab", 1, ValueType::kValue)),
+            0);
+  EXPECT_LT(CompareInternalKeys(Encode("ab", 1, ValueType::kValue), View(ab)),
+            0);
+  EXPECT_EQ(
+      CompareInternalKeys(View(ab), Encode("ab", 0, ValueType::kDeletion)), 0);
+  // Otherwise the user-key bytes decide.
+  EXPECT_LT(CompareInternalKeys(View(ab), View(b)), 0);
+  EXPECT_GT(CompareInternalKeys(View(b), View(ab)), 0);
+  EXPECT_LT(CompareInternalKeys(View(ab), Encode("abc", 1, ValueType::kValue)),
+            0);
+  EXPECT_LT(CompareInternalKeys(View(empty), View(ab)), 0);
+  EXPECT_EQ(CompareInternalKeys(View(ab), View(ab_again)), 0);
+  EXPECT_EQ(CompareInternalKeys(View(empty), View(empty)), 0);
+}
+
 TEST(InternalKey, SortedOrderGroupsKeysNewestFirst) {
   struct Less {
     bool operator()(const std::string& a, const std::string& b) const {
