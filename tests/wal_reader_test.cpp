@@ -176,8 +176,66 @@ TEST_F(WalReaderTest, FlippedBytesStopAtOrBeforeTheDamage) {
     // Every byte is either returned or reported as dropped.
     EXPECT_EQ(returned_bytes + r.dropped, full.size()) << "pos=" << pos;
     EXPECT_NE(r.reason, StopReason::kNone) << "pos=" << pos;
-    EXPECT_TRUE(r.status.ok());
+    // Damage before the last frame is Corruption. A flipped length field is
+    // the exception: a longer length can run the frame into the end of the
+    // file, which is indistinguishable from a torn write.
+    const bool last_frame = damaged_frame + 1 == payloads.size();
+    const bool in_length_field = pos >= start + 4 && pos < start + 8;
+    if (!last_frame && !in_length_field) {
+      EXPECT_TRUE(r.status.IsCorruption()) << "pos=" << pos;
+    } else {
+      EXPECT_TRUE(r.status.ok() || r.status.IsCorruption()) << "pos=" << pos;
+    }
   }
+}
+
+TEST_F(WalReaderTest, DamageBeforeLaterRecordsIsCorruption) {
+  std::string bytes = WriteLog({"one", "two", "three"});
+  char& target = bytes[FrameSize("one") + kHeaderSize];
+  target = static_cast<char>(static_cast<uint8_t>(target) ^ 0x01U);
+  Overwrite(bytes);
+
+  const ReadResult r = ReadAll();
+  EXPECT_EQ(r.records, std::vector<std::string>{"one"});
+  EXPECT_EQ(r.reason, StopReason::kBadChecksum);
+  EXPECT_EQ(r.dropped, FrameSize("two") + FrameSize("three"));
+  EXPECT_TRUE(r.status.IsCorruption());
+}
+
+TEST_F(WalReaderTest, BadChecksumOnLastRecordIsATornTail) {
+  std::string bytes = WriteLog({"one", "two"});
+  char& target = bytes[FrameSize("one") + kHeaderSize];
+  target = static_cast<char>(static_cast<uint8_t>(target) ^ 0x01U);
+  bytes.append(64, '\0');
+  Overwrite(bytes);
+
+  const ReadResult r = ReadAll();
+  EXPECT_EQ(r.records, std::vector<std::string>{"one"});
+  EXPECT_EQ(r.reason, StopReason::kBadChecksum);
+  EXPECT_EQ(r.dropped, FrameSize("two") + 64);
+  EXPECT_TRUE(r.status.ok());
+}
+
+TEST_F(WalReaderTest, ZeroedRecordBeforeLaterRecordsIsCorruption) {
+  std::string bytes = WriteLog({"one", "two", "three"});
+  bytes.replace(FrameSize("one"), FrameSize("two"), FrameSize("two"), '\0');
+  Overwrite(bytes);
+
+  const ReadResult r = ReadAll();
+  EXPECT_EQ(r.records, std::vector<std::string>{"one"});
+  EXPECT_EQ(r.reason, StopReason::kBadType);
+  EXPECT_TRUE(r.status.IsCorruption());
+}
+
+TEST_F(WalReaderTest, UnknownTypeOnLastRecordIsCorruption) {
+  std::string bytes = WriteLog({"one", "two"});
+  bytes[FrameSize("one") + 8] = 7;
+  Overwrite(bytes);
+
+  const ReadResult r = ReadAll();
+  EXPECT_EQ(r.records, std::vector<std::string>{"one"});
+  EXPECT_EQ(r.reason, StopReason::kBadType);
+  EXPECT_TRUE(r.status.IsCorruption());
 }
 
 TEST_F(WalReaderTest, ZeroFilledTailIsDropped) {

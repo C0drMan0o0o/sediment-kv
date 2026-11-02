@@ -28,11 +28,12 @@ struct RecoveryStats {
   wal::StopReason stop_reason = wal::StopReason::kNone;
 };
 
-// Replay the log at `path` into `memtable`, in order. A damaged tail is not an
+// Replay the log at `path` into `memtable`, in order. A torn tail is not an
 // error: replay stops at the first bad frame and reports it in `stats`.
-// Returns non-OK if the file cannot be opened or read, or if an intact frame
-// holds an undecodable entry (Corruption), since the CRC rules out a torn
-// write as the cause.
+// Returns non-OK if the file cannot be opened or read, if the damage is not a
+// torn tail (Corruption; see wal::Reader), or if an intact frame holds an
+// undecodable entry (Corruption), since the CRC rules out a torn write as the
+// cause. `stats` describes what was replayed in every case.
 Status RecoverFromLog(const std::string& path, MemTable* memtable,
                       RecoveryStats* stats);
 

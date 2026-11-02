@@ -43,7 +43,7 @@ Rules for choosing a code:
 
 - `NotFound` is not an error of the engine. Callers branch on it, so never return it for anything but a missing key or file.
 - `Corruption` and `IOError` are different failures. If the read succeeded and the bytes are wrong, it is `Corruption`; if the read itself failed, it is `IOError`. A reader must never hand back garbage in place of either.
-- A torn tail in the write-ahead log is not `Corruption`. Recovery stops at the first bad record and treats the rest as never acknowledged.
+- A torn tail in the write-ahead log is not `Corruption`. Recovery stops at the first bad record and treats the rest as never acknowledged. Damage anywhere else in the log is `Corruption`, because skipping it would silently drop acknowledged writes.
 
 ## Key encoding
 
@@ -103,11 +103,21 @@ varint32 internal_key_len | internal key | varint32 value_len | value
 
 Fixed-width fields are little-endian. The CRC (masked, as in LevelDB) covers the type byte and payload. `type` is always `kFull` (1) today; 0 is reserved so a zero-filled tail from a torn write never parses as a valid record.
 
-**Length-prefixed, not block-fragmented.** LevelDB splits records across 32 KB blocks so a reader can resynchronise at the next block boundary after corruption. Sediment skips that: a record is a single frame of any size, which keeps the writer and reader simple. The cost is that after a bad frame the reader cannot find the next one, so recovery stops at the first damaged record and drops everything after it. That is acceptable because the log is only replayed to rebuild the memtable after a crash, and a torn write can only damage the tail. The `type` byte leaves room to add fragment types later without changing the header.
+**Length-prefixed, not block-fragmented.** LevelDB splits records across 32 KB blocks so a reader can resynchronise at the next block boundary after corruption. Sediment skips that: a record is a single frame of any size, which keeps the writer and reader simple. The cost is that after a bad frame the reader cannot find the next one, so recovery stops at the first damaged record. That is acceptable for a torn write, which can only damage the tail; damage further back is reported as `Corruption` instead of being skipped. The `type` byte leaves room to add fragment types later without changing the header.
 
 **Durability.** `AddRecord(payload, sync)` writes the header and payload with two unbuffered appends, then calls `Sync()` only if `sync` is true. After any failed append the log may end in a partial frame, so the writer returns the same error for all later appends rather than writing valid frames behind garbage.
 
-**Reading and torn writes.** `wal::Reader` returns records in order and stops at the first frame that is damaged: a short header, a short payload, a reserved or unknown type byte (a zero-filled tail lands here), or a CRC mismatch. It never returns a damaged record. After stopping it reads the rest of the file so `dropped_bytes()` reports exactly how much was discarded, and `stop_reason()` says why. Damage is not an error (`status()` stays OK), because a torn tail is the expected result of a crash; only a failing `read(2)` sets a non-OK status. Payloads are read in 64 KB chunks, so a corrupted length field on a small file ends in a short read instead of a multi-gigabyte allocation.
+**Reading and torn writes.** `wal::Reader` returns records in order and stops at the first frame that is damaged: a short header, a short payload, a reserved or unknown type byte (a zero-filled tail lands here), or a CRC mismatch. It never returns a damaged record. After stopping it reads the rest of the file so `dropped_bytes()` reports exactly how much was discarded, and `stop_reason()` says why.
+
+**Torn tail or corruption.** A torn tail is the expected result of a crash, so it is not an error: `status()` stays OK. But a bit flip or bad sector in the middle of the log also produces a bad frame, and treating that as a torn tail would silently drop every acknowledged write after it. The reader therefore accepts damage as a torn tail only if it has the shape an interrupted final append leaves:
+
+- the file ends partway through a frame (short header or short payload), or
+- the last frame fails its checksum and only zeros, or nothing, follow it, or
+- the header and everything after it are zeros (a zero-filled tail).
+
+Anything else, such as a bad frame with more data after it or a non-zero header with an unknown type, sets `status()` to `Corruption`; a failing `read(2)` sets `IOError`. One case slips through: a flipped length field that makes a frame run past the end of the file looks exactly like a short payload, so it is still treated as a torn tail.
+
+The rule assumes only the final append can be torn. That holds for a process crash, and for power loss once every write is synced. With unsynced writes, power loss can damage more than the last frame, and the log then fails to open with `Corruption` instead of losing those writes quietly. A recovery-mode option (as in RocksDB's `wal_recovery_mode`) could relax this later if it proves too strict. Payloads are read in 64 KB chunks, so a corrupted length field on a small file ends in a short read instead of a multi-gigabyte allocation.
 
 ## Recovery
 
@@ -117,7 +127,7 @@ A WAL record holds one write:
 [sequence: fixed64][type: 1][key_len: varint32][key][value_len: varint32][value]
 ```
 
-`RecoverFromLog` (`sediment/recovery.h`) replays the log into a memtable in order and returns `RecoveryStats`: entries applied, the highest sequence seen (where the next write continues from), and the bytes dropped at a damaged tail with the reason. A torn tail is expected after a crash and is not an error. An intact frame (CRC verified) whose entry will not decode is `Corruption`, because a torn write cannot produce a valid CRC over bad contents.
+`RecoverFromLog` (`sediment/recovery.h`) replays the log into a memtable in order and returns `RecoveryStats`: entries applied, the highest sequence seen (where the next write continues from), and the bytes dropped at a damaged tail with the reason. A torn tail is expected after a crash and is not an error; damage that is not a torn tail is `Corruption` (see above). An intact frame (CRC verified) whose entry will not decode is `Corruption`, because a torn write cannot produce a valid CRC over bad contents.
 
 **Kill test.** To run it (100 iterations here):
 
