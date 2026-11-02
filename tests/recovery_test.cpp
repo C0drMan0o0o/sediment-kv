@@ -109,6 +109,27 @@ TEST_F(RecoveryTest, TornTailKeepsEarlierWrites) {
   EXPECT_EQ(mem.Get("b", 2, &value), MemTable::GetResult::kNotFound);
 }
 
+TEST_F(RecoveryTest, DamageBeforeLaterWritesIsCorruption) {
+  WriteRecords({Entry(1, ValueType::kValue, "a", "one"),
+                Entry(2, ValueType::kValue, "b", "two"),
+                Entry(3, ValueType::kValue, "c", "three")});
+  // Flip the last byte of the second frame (inside its payload).
+  const size_t first_frame =
+      wal::kHeaderSize + Entry(1, ValueType::kValue, "a", "one").size();
+  const size_t second_frame =
+      wal::kHeaderSize + Entry(2, ValueType::kValue, "b", "two").size();
+  std::fstream f(Path(), std::ios::in | std::ios::out | std::ios::binary);
+  f.seekp(static_cast<std::streamoff>(first_frame + second_frame - 1));
+  f.put('\xee');
+  f.close();
+
+  MemTable mem;
+  RecoveryStats stats;
+  EXPECT_TRUE(RecoverFromLog(Path(), &mem, &stats).IsCorruption());
+  EXPECT_EQ(stats.records, 1u);
+  EXPECT_EQ(stats.stop_reason, wal::StopReason::kBadChecksum);
+}
+
 TEST_F(RecoveryTest, IntactFrameWithGarbageEntryIsCorruption) {
   WriteRecords({Entry(1, ValueType::kValue, "a", "one"), "xyz"});
   MemTable mem;

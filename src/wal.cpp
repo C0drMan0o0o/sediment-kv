@@ -53,6 +53,10 @@ namespace {
 // Payloads are read in chunks so that a corrupt length field cannot trigger a
 // huge allocation before the short read reveals the damage.
 constexpr size_t kReadChunk = size_t{64} * 1024;
+
+bool IsAllZero(std::string_view bytes) {
+  return std::ranges::all_of(bytes, [](char c) { return c == '\0'; });
+}
 }  // namespace
 
 Reader::Reader(std::unique_ptr<SequentialFile> file) : file_(std::move(file)) {}
@@ -75,21 +79,29 @@ size_t Reader::ReadFully(size_t n, char* dst) {
 }
 
 // Mark the log finished. `consumed` is how many bytes of the damaged frame were
-// already read; the rest of the file is read and counted as dropped too.
-bool Reader::Stop(StopReason reason, uint64_t consumed) {
+// already read; the rest of the file is read and counted as dropped too. The
+// damage is a torn tail only if the frame could have been left by a torn write
+// (`may_be_torn`) and nothing but zeros follows it; otherwise it is Corruption.
+bool Reader::Stop(StopReason reason, uint64_t consumed, bool may_be_torn) {
   done_ = true;
   stop_reason_ = reason;
   dropped_bytes_ = consumed;
+  bool rest_is_zero = true;
   std::string scratch(kReadChunk, '\0');
   while (status_.ok()) {
     const size_t n = ReadFully(scratch.size(), scratch.data());
     dropped_bytes_ += n;
+    rest_is_zero = rest_is_zero && IsAllZero({scratch.data(), n});
     if (n < scratch.size()) {
       break;
     }
   }
   if (!status_.ok()) {
     stop_reason_ = StopReason::kIOError;
+  } else if (!may_be_torn) {
+    status_ = Status::Corruption("wal record has an unknown type");
+  } else if (!rest_is_zero) {
+    status_ = Status::Corruption("damaged wal record is followed by more data");
   }
   return false;
 }
@@ -120,7 +132,9 @@ bool Reader::ReadRecord(std::string* record) {
   (void)GetFixed32(&fields, &length);
   const char type = header[8];
   if (static_cast<RecordType>(type) != RecordType::kFull) {
-    return Stop(StopReason::kBadType, header_got);
+    // A torn write leaves zeros here, never a stray type byte.
+    return Stop(StopReason::kBadType, header_got,
+                IsAllZero({header.data(), header.size()}));
   }
 
   std::string payload;

@@ -63,11 +63,16 @@ enum class StopReason : uint8_t {
 
 // Reads records back from a log file written by Writer.
 //
-// Recovery stops at the first damaged frame: a torn write can only damage the
-// tail, and with length-prefixed frames there is no way to find the next valid
-// one. Everything from that frame on is counted in dropped_bytes() and is never
-// returned. Damage is not an error: ReadRecord() returns false and status()
-// stays OK; status() is non-OK only if the file itself could not be read.
+// Reading stops at the first damaged frame: with length-prefixed frames there
+// is no way to find the next valid one. Everything from that frame on is
+// counted in dropped_bytes() and is never returned.
+//
+// A torn tail, the expected result of a crash, is not an error: status() stays
+// OK. Damage counts as a torn tail only if it could come from an interrupted
+// final append: the file ends inside the frame, the last frame fails its
+// checksum with only zeros after it, or the header and everything after it
+// are zeros. Any other damage would silently drop records written before it,
+// so status() is Corruption. status() is IOError if the file could not be read.
 // Single-threaded.
 class Reader {
  public:
@@ -88,7 +93,7 @@ class Reader {
   // Read until `n` bytes arrive or the file ends; returns the count read.
   // Records an I/O failure in status_.
   size_t ReadFully(size_t n, char* dst);
-  bool Stop(StopReason reason, uint64_t consumed);
+  bool Stop(StopReason reason, uint64_t consumed, bool may_be_torn = true);
 
   std::unique_ptr<SequentialFile> file_;
   Status status_;
