@@ -168,7 +168,12 @@ The footer holds the index handle (two fixed64s), a format version (fixed32) and
 
 `TableBuilder` records the smallest and largest key and the entry count, which the version set will need for file metadata. Keys must arrive in strictly increasing order. The builder does not sync or close the file; `WriteMemTableToTable` does that after `Finish()` and then syncs the table's directory, so a memtable flush can treat a successful return as durable. Table keys are encoded internal keys, so tombstones and older versions are written as they are; hiding them is the job of the read path and compaction.
 
-**Reading a table.** `Table::Open` reads the footer from the last 28 bytes, then the whole index block into memory; a bad footer or an index block that fails its CRC fails the open. `Table::Get` binary searches the index for the first block whose last key is >= the target, reads only that block, and checks its CRC through `BlockReader` before searching it. Handles are bounds-checked against the data area, so a corrupt offset or a truncated file gives `Corruption` instead of a stray read. `Get` matches the key exactly; ordered seeks across blocks arrive with the table iterator.
+**Reading a table.** `Table::Open` reads the footer from the last 28 bytes, then the whole index block into memory; a bad footer or an index block that fails its CRC fails the open. `Table::Seek` binary searches the index for the first block whose last key is >= the target, reads only that block, and checks its CRC through `BlockReader` before searching it. It returns the first entry >= the target, which is always in that block. Handles are bounds-checked against the data area, so a corrupt offset or a truncated file gives `Corruption` instead of a stray read. Full ordered scans across blocks arrive with the table iterator.
+
+**Lookups.** Two `Get`s are built on `Seek`:
+
+- `Get(key, &value)` matches a key exactly in comparator order. It suits bytewise tables, and the block and table tests use it.
+- `Get(user_key, sequence, &value, &result)` is the read path's lookup on a table of internal keys. It seeks to `(user_key, sequence, kValue)`, the same probe `MemTable::Get` uses, which sorts before every version of the key visible at `sequence`. The first entry at or after it then decides the result: a different user key is `kNotFound` (ask the next, older table), a tombstone is `kDeleted` (stop), and anything else is `kFound` with its value. Real failures come back as a non-OK `Status`, so `Corruption` and `IOError` stay separate from the three normal outcomes. Because the result mirrors `MemTable::GetResult`, the read path can treat the memtables and every table in the same way, newest first.
 
 ## Resources
 
