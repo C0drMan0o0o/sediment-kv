@@ -28,8 +28,19 @@ for ((i = 1; i <= iterations; i++)); do
   "$demo" write "$dir/wal" ${write_args[@]+"${write_args[@]}"} >"$dir/acks" &
   pid=$!
   # Wait for the first acknowledgement so slow process start-up is not
-  # mistaken for a crash.
-  until [[ -s "$dir/acks" ]]; do sleep 0.01; done
+  # mistaken for a crash. A writer that exits first (a bad path, a broken
+  # build) would never print one, so stop instead of waiting forever.
+  until [[ -s "$dir/acks" ]]; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      status=0
+      wait "$pid" || status=$?
+      if [[ ! -s "$dir/acks" ]]; then
+        echo "iteration $i: writer exited with status $status before its first ack" >&2
+        exit 1
+      fi
+    fi
+    sleep 0.01
+  done
   # Kill between 20 and 220 ms in, so the writer dies at varying points.
   sleep "0.$(printf '%03d' $((20 + RANDOM % 200)))"
   kill -9 "$pid"
