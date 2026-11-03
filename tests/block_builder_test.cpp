@@ -119,5 +119,26 @@ TEST(BlockBuilder, CrcDetectsFlippedBit) {
   EXPECT_NE(crc32c::Unmask(stored), crc32c::Value(block.data(), body));
 }
 
+#ifndef NDEBUG
+// Lengths are stored as varint32. Each view below claims more than 4 GiB over
+// a 1-byte buffer, which is safe only because the length check comes before
+// any byte is read.
+TEST(BlockBuilderDeathTest, KeyTooLongForVarint32Asserts) {
+  const char byte = 'k';
+  BlockBuilder builder;
+  EXPECT_DEATH(
+      builder.Add(std::string_view(&byte, size_t{UINT32_MAX} + 1), "v"),
+      "ssertion");
+}
+
+TEST(BlockBuilderDeathTest, ValueTooLongForVarint32Asserts) {
+  const char byte = 'v';
+  BlockBuilder builder;
+  EXPECT_DEATH(
+      builder.Add("k", std::string_view(&byte, size_t{UINT32_MAX} + 1)),
+      "ssertion");
+}
+#endif
+
 }  // namespace
 }  // namespace sediment

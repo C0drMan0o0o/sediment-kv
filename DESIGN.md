@@ -84,6 +84,8 @@ varint32 internal_key_len | internal key | varint32 value_len | value
 - `kDeleted` and `kNotFound` must stay distinct. `kNotFound` means "ask the next, older source" (immutable memtable, then SSTables); `kDeleted` means "stop, the key is gone". Collapsing them would resurrect deleted keys.
 - `ApproximateMemoryUsage()` is the arena's total, including slack in partially filled blocks. It grows in 4 KB steps, which is fine for a flush threshold of megabytes.
 
+**Size limits.** Key and value lengths are stored as varint32 in memtable entries, WAL entries and SSTable blocks, so each must be under 4 GiB, and a memtable key must leave room for the 8-byte tag. `MemTable::Add`, `EncodeLogEntry` and `BlockBuilder::Add` cannot report an error, so they only `assert` this. In a release build, a longer key or value would have its length silently cut to 32 bits. `DB::Put` must reject such input with `InvalidArgument` before it reaches them, as `wal::Writer::AddRecord` already does for records over 4 GiB.
+
 ## Files and durability
 
 `WritableFile`, `SequentialFile` and `RandomAccessFile` (`sediment/file.h`) are thin wrappers over POSIX file descriptors. Every call returns a `Status`; `IOError` messages carry the path and `strerror`.

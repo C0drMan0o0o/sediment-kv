@@ -16,6 +16,8 @@ BlockBuilder::BlockBuilder(int restart_interval)
 
 void BlockBuilder::Add(std::string_view key, std::string_view value) {
   assert(!finished_);
+  // Lengths and restart offsets are stored as 32-bit values.
+  assert(key.size() <= UINT32_MAX && value.size() <= UINT32_MAX);
 
   size_t shared = 0;
   if (entries_since_restart_ < restart_interval_) {
@@ -34,6 +36,8 @@ void BlockBuilder::Add(std::string_view key, std::string_view value) {
   PutVarint32(&buffer_, static_cast<uint32_t>(value.size()));
   buffer_.append(key.data() + shared, non_shared);
   buffer_.append(value.data(), value.size());
+
+  assert(buffer_.size() <= UINT32_MAX);
 
   last_key_.assign(key.data(), key.size());
   ++entries_since_restart_;

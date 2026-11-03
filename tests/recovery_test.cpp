@@ -164,5 +164,27 @@ TEST_F(RecoveryTest, HandlesEmptyKeyAndLargeValue) {
   EXPECT_EQ(value, big);
 }
 
+#ifndef NDEBUG
+// Lengths are stored as varint32. Each view below claims more than 4 GiB over
+// a 1-byte buffer, which is safe only because the length check comes before
+// any byte is read.
+TEST(RecoveryDeathTest, LogEntryKeyTooLongForVarint32Asserts) {
+  const char byte = 'k';
+  std::string entry;
+  EXPECT_DEATH(
+      EncodeLogEntry(&entry, 1, ValueType::kValue,
+                     std::string_view(&byte, size_t{UINT32_MAX} + 1), "v"),
+      "ssertion");
+}
+
+TEST(RecoveryDeathTest, LogEntryValueTooLongForVarint32Asserts) {
+  const char byte = 'v';
+  std::string entry;
+  EXPECT_DEATH(EncodeLogEntry(&entry, 1, ValueType::kValue, "k",
+                              std::string_view(&byte, size_t{UINT32_MAX} + 1)),
+               "ssertion");
+}
+#endif
+
 }  // namespace
 }  // namespace sediment
