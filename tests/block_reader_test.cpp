@@ -211,5 +211,16 @@ TEST(BlockReader, TruncatedBlockIsCorruption) {
   }
 }
 
+#ifndef NDEBUG
+TEST(BlockReaderDeathTest, NextOnInvalidIteratorAsserts) {
+  const std::string block = Build(SortedEntries(3), 16);
+  BlockReader reader(block);
+  auto it = reader.NewIterator();
+  it.Seek("zzz");  // past the last key
+  ASSERT_FALSE(it.Valid());
+  EXPECT_DEATH(it.Next(), "ssertion");
+}
+#endif
+
 }  // namespace
 }  // namespace sediment

@@ -97,7 +97,9 @@ class SkipList {
   };
 
  private:
-  struct Node {
+  // Aligned for a pointer so that the next-pointers stored right after it are
+  // aligned too, even when Key is narrower than a pointer.
+  struct alignas(void*) Node {
     explicit Node(const Key& k) : key(k) {}
     Key const key;
 

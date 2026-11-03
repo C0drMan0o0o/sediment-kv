@@ -162,5 +162,32 @@ TEST(SkipList, RandomizedMatchesStdSetOracle) {
   }
 }
 
+// Each node's next-pointers are stored right after it, so a key narrower than
+// a pointer must not leave them misaligned. UBSan reports a misaligned load.
+TEST(SkipList, KeysNarrowerThanAPointerWork) {
+  struct SmallCmp {
+    int operator()(uint32_t a, uint32_t b) const {
+      return a < b ? -1 : (a > b ? 1 : 0);
+    }
+  };
+  Arena arena;
+  SkipList<uint32_t, SmallCmp> list(SmallCmp(), &arena);
+  // NOLINTNEXTLINE(bugprone-random-generator-seed)
+  std::mt19937 rng(7);
+  std::set<uint32_t> oracle;
+  for (int i = 0; i < 1000; ++i) {
+    const uint32_t k = rng();
+    if (oracle.insert(k).second) {
+      list.Insert(k);
+    }
+  }
+  std::vector<uint32_t> got;
+  SkipList<uint32_t, SmallCmp>::Iterator it(&list);
+  for (it.SeekToFirst(); it.Valid(); it.Next()) {
+    got.push_back(it.key());
+  }
+  EXPECT_EQ(got, std::vector<uint32_t>(oracle.begin(), oracle.end()));
+}
+
 }  // namespace
 }  // namespace sediment

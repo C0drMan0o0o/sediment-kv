@@ -1,6 +1,7 @@
 #include "sediment/block_reader.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstring>
 
 #include "sediment/coding.h"
@@ -116,6 +117,7 @@ void BlockReader::Iterator::SeekToFirst() {
 }
 
 void BlockReader::Iterator::Next() {
+  assert(Valid());
   ParseNext();
 }
 
