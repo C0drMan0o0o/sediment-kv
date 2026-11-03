@@ -1,5 +1,6 @@
 #include "sediment/recovery.h"
 
+#include <cassert>
 #include <memory>
 #include <utility>
 
@@ -61,6 +62,8 @@ Status DecodeLogEntry(std::string_view input, SequenceNumber* sequence,
 
 void EncodeLogEntry(std::string* dst, SequenceNumber sequence, ValueType type,
                     std::string_view key, std::string_view value) {
+  // Both lengths are stored as varint32; callers must reject longer input.
+  assert(key.size() <= UINT32_MAX && value.size() <= UINT32_MAX);
   PutFixed64(dst, sequence);
   dst->push_back(static_cast<char>(type));
   PutVarint32(dst, static_cast<uint32_t>(key.size()));

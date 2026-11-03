@@ -34,6 +34,8 @@ MemTable::MemTable() : table_(EntryComparator(), &arena_) {}
 
 void MemTable::Add(SequenceNumber sequence, ValueType type,
                    std::string_view key, std::string_view value) {
+  // Both lengths are stored as varint32; callers must reject longer input.
+  assert(key.size() <= UINT32_MAX - 8 && value.size() <= UINT32_MAX);
   const size_t internal_len = key.size() + 8;
   const size_t total =
       static_cast<size_t>(VarintLength(internal_len)) + internal_len +

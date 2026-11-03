@@ -148,5 +148,26 @@ TEST(MemTable, IteratorYieldsInternalKeyOrder) {
   EXPECT_EQ(got, expected);
 }
 
+#ifndef NDEBUG
+// Lengths are stored as varint32. Each view below claims more than 4 GiB over
+// a 1-byte buffer, which is safe only because the length check comes before
+// any byte is read.
+TEST(MemTableDeathTest, KeyTooLongForVarint32Asserts) {
+  const char byte = 'k';
+  MemTable mem;
+  EXPECT_DEATH(mem.Add(1, ValueType::kValue,
+                       std::string_view(&byte, size_t{UINT32_MAX}), "v"),
+               "ssertion");
+}
+
+TEST(MemTableDeathTest, ValueTooLongForVarint32Asserts) {
+  const char byte = 'v';
+  MemTable mem;
+  EXPECT_DEATH(mem.Add(1, ValueType::kValue, "k",
+                       std::string_view(&byte, size_t{UINT32_MAX} + 1)),
+               "ssertion");
+}
+#endif
+
 }  // namespace
 }  // namespace sediment
