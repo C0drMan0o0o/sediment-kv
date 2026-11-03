@@ -172,15 +172,21 @@ class PosixRandomAccessFile final : public RandomAccessFile {
   PosixFd file_;
 };
 
-// Open `path` with `flags` and wrap the descriptor in an `Impl`.
-template <typename Impl, typename Base>
-Status OpenAs(const std::string& path, int flags,
-              std::unique_ptr<Base>* result) {
+// open(2) `path` with `flags`, retrying on EINTR. Returns -1 with errno set.
+int OpenRetrying(const std::string& path, int flags) {
   int fd = -1;
   do {
     // NOLINTNEXTLINE(bugprone-signed-bitwise): O_* flags are int macros.
     fd = ::open(path.c_str(), flags | O_CLOEXEC, 0644);
   } while (fd < 0 && errno == EINTR);
+  return fd;
+}
+
+// Open `path` with `flags` and wrap the descriptor in an `Impl`.
+template <typename Impl, typename Base>
+Status OpenAs(const std::string& path, int flags,
+              std::unique_ptr<Base>* result) {
+  const int fd = OpenRetrying(path, flags);
   if (fd < 0) {
     result->reset();
     return PosixError(path, errno);
@@ -204,6 +210,20 @@ Status NewSequentialFile(const std::string& path,
 Status NewRandomAccessFile(const std::string& path,
                            std::unique_ptr<RandomAccessFile>* result) {
   return OpenAs<PosixRandomAccessFile>(path, O_RDONLY, result);
+}
+
+Status SyncDir(const std::string& path) {
+  // NOLINTNEXTLINE(bugprone-signed-bitwise): O_* flags are int macros.
+  const int fd = OpenRetrying(path, O_RDONLY | O_DIRECTORY);
+  if (fd < 0) {
+    return PosixError(path, errno);
+  }
+  PosixFd dir(path, fd);
+  Status s = SyncFd(dir);
+  if (s.ok()) {
+    s = dir.Close();
+  }
+  return s;
 }
 
 }  // namespace sediment

@@ -1,6 +1,7 @@
 #include "sediment/table_builder.h"
 
 #include <cassert>
+#include <filesystem>
 #include <memory>
 
 #include "sediment/coding.h"
@@ -145,6 +146,11 @@ Status WriteMemTableToTable(const MemTable& memtable,
   }
   if (s.ok()) {
     s = file->Close();
+  }
+  if (s.ok()) {
+    // The new file's directory entry is durable only once its directory is.
+    const std::filesystem::path dir = std::filesystem::path(path).parent_path();
+    s = SyncDir(dir.empty() ? "." : dir.string());
   }
   if (!s.ok()) {
     return s;

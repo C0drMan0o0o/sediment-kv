@@ -94,7 +94,7 @@ varint32 internal_key_len | internal key | varint32 value_len | value
 
 The fallback uses a denylist of real failures rather than an allowlist of "unsupported" codes. A rejected `F_FULLFSYNC` does not always report the same code (`/dev/null` gives `ENODEV`, not `ENOTSUP`), and an unrecognised code on an allowlist would make `Sync()` fail on a file system where `fsync` works. LevelDB and SQLite fall back on any failure; the denylist keeps that tolerance but stops masking errors that mean lost data. On Linux, `fsync(2)` already waits for the device to report the data durable, so it is used directly.
 
-**Not yet handled.** `Sync()` on a newly created file does not sync the parent directory, so the file's directory entry could be lost in a crash. This matters for the manifest and `CURRENT` file and is deferred until they exist.
+**Directory entries.** `Sync()` makes a file's contents durable but not its name: the entry in the parent directory is separate metadata, and a crash can lose it, leaving a synced file that no longer exists. `SyncDir(path)` opens the directory and syncs it with the same `F_FULLFSYNC`/`fsync` logic as files. Anything that creates or renames a file and then relies on it surviving a crash must call it. `WriteMemTableToTable` does so after closing the new table. The WAL, the manifest and the `CURRENT` file's atomic rename will need the same once `DB::Open` creates them.
 
 ## Write-ahead log
 
@@ -166,7 +166,7 @@ The index block has one entry per data block: the key is the block's last key, t
 
 The footer holds the index handle (two fixed64s), a format version (fixed32) and a magic number (fixed64, which spells `sediment` in the file). A reader seeks to `file_size - 28`, so it needs nothing else to find the index. A wrong length, magic number or version is `Corruption`.
 
-`TableBuilder` records the smallest and largest key and the entry count, which the version set will need for file metadata. Keys must arrive in strictly increasing order. The builder does not sync or close the file; `WriteMemTableToTable` does that after `Finish()`, so a memtable flush can treat a successful return as durable. Table keys are encoded internal keys, so tombstones and older versions are written as they are; hiding them is the job of the read path and compaction.
+`TableBuilder` records the smallest and largest key and the entry count, which the version set will need for file metadata. Keys must arrive in strictly increasing order. The builder does not sync or close the file; `WriteMemTableToTable` does that after `Finish()` and then syncs the table's directory, so a memtable flush can treat a successful return as durable. Table keys are encoded internal keys, so tombstones and older versions are written as they are; hiding them is the job of the read path and compaction.
 
 **Reading a table.** `Table::Open` reads the footer from the last 28 bytes, then the whole index block into memory; a bad footer or an index block that fails its CRC fails the open. `Table::Get` binary searches the index for the first block whose last key is >= the target, reads only that block, and checks its CRC through `BlockReader` before searching it. Handles are bounds-checked against the data area, so a corrupt offset or a truncated file gives `Corruption` instead of a stray read. `Get` matches the key exactly; ordered seeks across blocks arrive with the table iterator.
 

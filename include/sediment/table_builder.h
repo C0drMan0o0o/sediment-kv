@@ -113,7 +113,8 @@ struct TableInfo {
 };
 
 // Write every entry of `memtable`, in internal-key order, to a new table file
-// at `path`, then sync and close it. Keys in the table are encoded internal
+// at `path`, then sync and close it and sync its directory, so the table
+// survives a crash once this returns OK. Keys in the table are encoded internal
 // keys, so `options.comparator` is ignored and CompareInternalKeys is used.
 // On failure the partial file is left for the caller to remove.
 Status WriteMemTableToTable(const MemTable& memtable,
