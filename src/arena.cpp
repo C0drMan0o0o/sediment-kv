@@ -37,9 +37,10 @@ char* Arena::AllocateAligned(size_t bytes, size_t alignment) {
 }
 
 char* Arena::NewBlock(size_t block_bytes) {
-  blocks_.emplace_back(block_bytes);
-  memory_usage_ += block_bytes + sizeof(std::vector<char>);
-  return blocks_.back().data();
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays): see Arena::Block.
+  blocks_.push_back(std::make_unique_for_overwrite<char[]>(block_bytes));
+  memory_usage_ += block_bytes + sizeof(Block);
+  return blocks_.back().get();
 }
 
 }  // namespace sediment

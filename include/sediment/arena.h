@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <vector>
 
 namespace sediment {
@@ -28,7 +29,11 @@ class Arena {
 
   char* ptr_ = nullptr;
   size_t remaining_ = 0;
-  std::vector<std::vector<char>> blocks_;
+  // Blocks are left uninitialised: zero-filling them would cost time on every
+  // block for bytes the caller always overwrites.
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays): sized at run time.
+  using Block = std::unique_ptr<char[]>;
+  std::vector<Block> blocks_;
   size_t memory_usage_ = 0;
 };
 
