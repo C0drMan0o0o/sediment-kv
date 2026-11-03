@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -172,6 +173,164 @@ TEST_F(TableReaderTest, LookupKeyShorterThanTagIsNotFound) {
   std::string value;
   EXPECT_TRUE(table->Get(std::string_view(key.data(), key.size()), &value)
                   .IsNotFound());
+}
+
+TEST_F(TableReaderTest, SeekFindsFirstEntryAtOrAfterTarget) {
+  const Entries entries = SortedEntries(200);
+  BuildTable(entries, 64);  // many small blocks
+  std::unique_ptr<Table> table;
+  ASSERT_TRUE(OpenTable(&table).ok());
+
+  std::string key;
+  std::string value;
+  for (size_t i = 0; i < entries.size(); ++i) {
+    // Exact hit, and a target just after the previous key, both land on i.
+    ASSERT_TRUE(table->Seek(entries[i].first, &key, &value).ok());
+    EXPECT_EQ(key, entries[i].first);
+    EXPECT_EQ(value, entries[i].second);
+    if (i > 0) {
+      ASSERT_TRUE(table->Seek(entries[i - 1].first + "x", &key, &value).ok());
+      EXPECT_EQ(key, entries[i].first);
+    }
+  }
+  ASSERT_TRUE(table->Seek("a", &key, &value).ok());  // before the first key
+  EXPECT_EQ(key, entries.front().first);
+  EXPECT_TRUE(table->Seek("zzz", &key, &value).IsNotFound());
+}
+
+// Flushes `memtable` and opens the result as an internal-key table.
+class TableLookupTest : public TableReaderTest {
+ protected:
+  void Flush(const MemTable& memtable, size_t block_size) {
+    TableBuilderOptions options;
+    options.block_size = block_size;
+    TableInfo info;
+    ASSERT_TRUE(
+        WriteMemTableToTable(memtable, options, Path("t.sst"), &info).ok());
+    ASSERT_TRUE(OpenTable(&table_, CompareInternalKeys).ok());
+  }
+
+  // Run the lookup, expecting OK, and return the result.
+  Table::LookupResult Lookup(std::string_view user_key, SequenceNumber sequence,
+                             std::string* value) {
+    Table::LookupResult result = Table::LookupResult::kNotFound;
+    EXPECT_TRUE(table_->Get(user_key, sequence, value, &result).ok());
+    return result;
+  }
+
+  std::unique_ptr<Table> table_;
+};
+
+TEST_F(TableLookupTest, FindsNewestVisibleVersion) {
+  MemTable memtable;
+  memtable.Add(1, ValueType::kValue, "apple", "red");
+  memtable.Add(2, ValueType::kDeletion, "apple", "");
+  memtable.Add(3, ValueType::kValue, "apple", "green");
+  memtable.Add(4, ValueType::kValue, "cherry", "dark");
+  Flush(memtable, 16);  // versions of "apple" span several blocks
+
+  std::string value;
+  EXPECT_EQ(Lookup("apple", kMaxSequenceNumber, &value),
+            Table::LookupResult::kFound);
+  EXPECT_EQ(value, "green");
+  EXPECT_EQ(Lookup("apple", 3, &value), Table::LookupResult::kFound);
+  EXPECT_EQ(value, "green");
+  EXPECT_EQ(Lookup("apple", 2, &value), Table::LookupResult::kDeleted);
+  EXPECT_EQ(Lookup("apple", 1, &value), Table::LookupResult::kFound);
+  EXPECT_EQ(value, "red");
+  EXPECT_EQ(Lookup("cherry", 4, &value), Table::LookupResult::kFound);
+  EXPECT_EQ(value, "dark");
+}
+
+TEST_F(TableLookupTest, MissingOrNotYetVisibleKeysAreNotFound) {
+  MemTable memtable;
+  memtable.Add(1, ValueType::kValue, "apple", "red");
+  memtable.Add(4, ValueType::kValue, "cherry", "dark");
+  Flush(memtable, 16);
+
+  std::string value = "untouched";
+  EXPECT_EQ(Lookup("a", kMaxSequenceNumber, &value),  // before the first key
+            Table::LookupResult::kNotFound);
+  EXPECT_EQ(Lookup("app", kMaxSequenceNumber, &value),  // prefix of a key
+            Table::LookupResult::kNotFound);
+  EXPECT_EQ(Lookup("banana", kMaxSequenceNumber, &value),  // between keys
+            Table::LookupResult::kNotFound);
+  EXPECT_EQ(Lookup("zzz", kMaxSequenceNumber, &value),  // after the last key
+            Table::LookupResult::kNotFound);
+  // Only a newer version of "cherry" exists.
+  EXPECT_EQ(Lookup("cherry", 3, &value), Table::LookupResult::kNotFound);
+  EXPECT_EQ(value, "untouched");
+}
+
+TEST_F(TableLookupTest, ShortUserKeysAreFound) {
+  MemTable memtable;
+  memtable.Add(1, ValueType::kValue, "", "empty");
+  memtable.Add(2, ValueType::kValue, "ab", "v");
+  Flush(memtable, 4096);
+
+  std::string value;
+  EXPECT_EQ(Lookup("", kMaxSequenceNumber, &value),
+            Table::LookupResult::kFound);
+  EXPECT_EQ(value, "empty");
+  EXPECT_EQ(Lookup("ab", kMaxSequenceNumber, &value),
+            Table::LookupResult::kFound);
+  EXPECT_EQ(value, "v");
+}
+
+TEST_F(TableLookupTest, MatchesMemTableOracle) {
+  // NOLINTNEXTLINE(bugprone-random-generator-seed)
+  std::mt19937 rng(20261103);
+  MemTable memtable;
+  constexpr int kKeys = 50;
+  constexpr SequenceNumber kWrites = 2000;
+  for (SequenceNumber seq = 1; seq <= kWrites; ++seq) {
+    const std::string key = "k" + std::to_string(rng() % kKeys);
+    if (rng() % 4 == 0) {
+      memtable.Add(seq, ValueType::kDeletion, key, "");
+    } else {
+      memtable.Add(seq, ValueType::kValue, key, "v" + std::to_string(seq));
+    }
+  }
+  Flush(memtable, 128);
+
+  for (int k = 0; k <= kKeys; ++k) {  // k == kKeys is never written
+    const std::string key = "k" + std::to_string(k);
+    for (SequenceNumber seq = 0; seq <= kWrites + 1; seq += 7) {
+      std::string want;
+      std::string got;
+      const MemTable::GetResult expected = memtable.Get(key, seq, &want);
+      const Table::LookupResult actual = Lookup(key, seq, &got);
+      switch (expected) {
+        case MemTable::GetResult::kFound:
+          ASSERT_EQ(actual, Table::LookupResult::kFound) << key << "@" << seq;
+          ASSERT_EQ(got, want) << key << "@" << seq;
+          break;
+        case MemTable::GetResult::kDeleted:
+          ASSERT_EQ(actual, Table::LookupResult::kDeleted) << key << "@" << seq;
+          break;
+        case MemTable::GetResult::kNotFound:
+          ASSERT_EQ(actual, Table::LookupResult::kNotFound)
+              << key << "@" << seq;
+          break;
+      }
+    }
+  }
+}
+
+TEST_F(TableLookupTest, CorruptBlockIsReported) {
+  MemTable memtable;
+  for (int i = 0; i < 100; ++i) {
+    memtable.Add(static_cast<SequenceNumber>(i) + 1, ValueType::kValue,
+                 "key" + std::to_string(1000 + i), "value");
+  }
+  Flush(memtable, 256);
+  FlipByte(10);  // inside the first data block
+  ASSERT_TRUE(OpenTable(&table_, CompareInternalKeys).ok());
+
+  std::string value;
+  Table::LookupResult result = Table::LookupResult::kNotFound;
+  EXPECT_TRUE(table_->Get("key1000", kMaxSequenceNumber, &value, &result)
+                  .IsCorruption());
 }
 
 TEST_F(TableReaderTest, FlippedDataByteIsCorruption) {

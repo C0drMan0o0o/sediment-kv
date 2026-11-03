@@ -1,5 +1,6 @@
 #include "sediment/table_reader.h"
 
+#include <cassert>
 #include <limits>
 #include <utility>
 
@@ -84,11 +85,12 @@ Status Table::ReadBlock(const BlockHandle& handle,
   return ReadExactly(*file_, handle.offset, handle.size, contents);
 }
 
-Status Table::Get(std::string_view key, std::string* value) const {
-  // The first index entry whose last key is >= key names the only block that
-  // can contain it.
+Status Table::Seek(std::string_view target, std::string* key,
+                   std::string* value) const {
+  // The first index entry whose last key is >= target names the only block
+  // that can hold the first entry >= target.
   BlockReader::Iterator index_it = index_.NewIterator();
-  index_it.Seek(key);
+  index_it.Seek(target);
   if (!index_it.Valid()) {
     return index_it.status().ok() ? Status::NotFound() : index_it.status();
   }
@@ -113,14 +115,62 @@ Status Table::Get(std::string_view key, std::string* value) const {
     return block.status();
   }
   BlockReader::Iterator it = block.NewIterator();
-  it.Seek(key);
+  it.Seek(target);
   if (!it.Valid()) {
     return it.status().ok() ? Status::NotFound() : it.status();
   }
-  if (comparator_(it.key(), key) != 0) {
+  key->assign(it.key());
+  value->assign(it.value());
+  return Status::OK();
+}
+
+Status Table::Get(std::string_view key, std::string* value) const {
+  std::string found_key;
+  std::string found_value;
+  Status s = Seek(key, &found_key, &found_value);
+  if (!s.ok()) {
+    return s;
+  }
+  if (comparator_(found_key, key) != 0) {
     return Status::NotFound();
   }
-  value->assign(it.value());
+  *value = std::move(found_value);
+  return Status::OK();
+}
+
+Status Table::Get(std::string_view user_key, SequenceNumber sequence,
+                  std::string* value, LookupResult* result) const {
+  assert(comparator_ == CompareInternalKeys);
+  // kValue has the highest type number, so this probe sorts before every
+  // version of `user_key` with sequence <= `sequence` (as in MemTable::Get).
+  std::string probe;
+  AppendInternalKey(
+      &probe,
+      {.user_key = user_key, .sequence = sequence, .type = ValueType::kValue});
+
+  std::string found_key;
+  std::string found_value;
+  Status s = Seek(probe, &found_key, &found_value);
+  if (s.IsNotFound()) {
+    *result = LookupResult::kNotFound;
+    return Status::OK();
+  }
+  if (!s.ok()) {
+    return s;
+  }
+  ParsedInternalKey parsed;
+  s = ParseInternalKey(found_key, &parsed);
+  if (!s.ok()) {
+    return s;
+  }
+  if (parsed.user_key != user_key) {
+    *result = LookupResult::kNotFound;
+  } else if (parsed.type == ValueType::kDeletion) {
+    *result = LookupResult::kDeleted;
+  } else {
+    *value = std::move(found_value);
+    *result = LookupResult::kFound;
+  }
   return Status::OK();
 }
 
