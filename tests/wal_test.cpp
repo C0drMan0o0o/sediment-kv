@@ -143,5 +143,49 @@ TEST_F(WalWriterTest, FailedAppendIsSticky) {
   EXPECT_EQ(writer->AddRecord("again"), first);
 }
 
+// A WritableFile that can fail every Append, or only the first Sync, while
+// every other call succeeds.
+class FaultyFile final : public WritableFile {
+ public:
+  FaultyFile(bool fail_append, bool fail_first_sync)
+      : fail_append_(fail_append), fail_next_sync_(fail_first_sync) {}
+
+  Status Append(std::string_view /*data*/) override {
+    return fail_append_ ? Status::IOError("append failed") : Status::OK();
+  }
+  Status Sync() override {
+    if (fail_next_sync_) {
+      fail_next_sync_ = false;
+      return Status::IOError("sync failed");
+    }
+    return Status::OK();
+  }
+  Status Close() override { return Status::OK(); }
+
+ private:
+  const bool fail_append_;
+  bool fail_next_sync_;
+};
+
+TEST(WalWriterFaults, SyncAfterFailedAppendReturnsTheAppendError) {
+  Writer writer(std::make_unique<FaultyFile>(/*fail_append=*/true,
+                                             /*fail_first_sync=*/false));
+  const Status append = writer.AddRecord("x");
+  ASSERT_TRUE(append.IsIOError());
+  // The file's own Sync would succeed, but the log may end in a partial frame.
+  EXPECT_EQ(writer.Sync(), append);
+}
+
+TEST(WalWriterFaults, FailedSyncIsSticky) {
+  Writer writer(std::make_unique<FaultyFile>(/*fail_append=*/false,
+                                             /*fail_first_sync=*/true));
+  ASSERT_TRUE(writer.AddRecord("x").ok());
+  const Status sync = writer.Sync();
+  ASSERT_TRUE(sync.IsIOError());
+  // A retried sync must not report the unsynced record as durable.
+  EXPECT_EQ(writer.Sync(), sync);
+  EXPECT_EQ(writer.AddRecord("y"), sync);
+}
+
 }  // namespace
 }  // namespace sediment::wal
