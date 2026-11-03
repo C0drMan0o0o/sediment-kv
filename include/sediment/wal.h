@@ -43,6 +43,9 @@ class Writer {
   // refuses further appends and returns the same error.
   Status AddRecord(std::string_view payload, bool sync = false);
 
+  // Force every appended record to stable storage. Returns the stored error
+  // if an earlier append or sync failed. A failed sync is sticky too, since a
+  // retry could succeed without the data that was lost.
   Status Sync();
   Status Close();
 

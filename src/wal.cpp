@@ -42,7 +42,13 @@ Status Writer::AddRecord(std::string_view payload, bool sync) {
 }
 
 Status Writer::Sync() {
-  return file_->Sync();
+  if (!error_.ok()) {
+    return error_;
+  }
+  // After a failed sync the state of unsynced data is unknown, and a retry
+  // could succeed without it, so the failure is sticky too.
+  error_ = file_->Sync();
+  return error_;
 }
 
 Status Writer::Close() {
