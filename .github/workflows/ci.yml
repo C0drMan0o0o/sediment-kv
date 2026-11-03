@@ -50,6 +50,12 @@ jobs:
       # so CI matches the version used locally.
       - name: Install tools
         run: |
+          # apt.llvm.org is sometimes briefly unreachable. Retry every wget and
+          # apt download, including the ones llvm.sh makes itself; wget treats
+          # DNS failures as fatal unless retry_on_host_error is set.
+          printf '%s\n' 'tries = 5' 'waitretry = 10' 'retry_connrefused = on' \
+            'retry_on_host_error = on' | sudo tee -a /etc/wgetrc >/dev/null
+          echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries >/dev/null
           wget -q https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 23
