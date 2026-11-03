@@ -21,7 +21,10 @@ if(SEDIMENT_SANITIZE)
     message(FATAL_ERROR "SEDIMENT_SANITIZE: 'thread' cannot be combined with 'address'")
   endif()
   # Global so dependencies (GoogleTest) are instrumented consistently.
-  add_compile_options(-fsanitize=${SEDIMENT_SANITIZE} -fno-omit-frame-pointer)
+  # -fno-sanitize-recover makes every finding abort the test; by default UBSan
+  # only prints a "runtime error" and lets the test pass.
+  add_compile_options(-fsanitize=${SEDIMENT_SANITIZE} -fno-sanitize-recover=all
+                      -fno-omit-frame-pointer)
   add_link_options(-fsanitize=${SEDIMENT_SANITIZE})
 endif()
 
