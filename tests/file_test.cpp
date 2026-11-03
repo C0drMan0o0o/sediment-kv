@@ -162,6 +162,20 @@ TEST_F(FileTest, UseAfterCloseReturnsInvalidArgumentAndCloseIsIdempotent) {
   EXPECT_TRUE(file->Sync().IsInvalidArgument());
 }
 
+TEST_F(FileTest, SyncDirSucceedsOnADirectory) {
+  WriteFile("a", "x");
+  EXPECT_TRUE(SyncDir(dir_.string()).ok());
+}
+
+TEST_F(FileTest, SyncDirOnMissingDirectoryIsIOError) {
+  EXPECT_TRUE(SyncDir(Path("missing")).IsIOError());
+}
+
+TEST_F(FileTest, SyncDirOnRegularFileIsIOError) {
+  WriteFile("a", "x");
+  EXPECT_TRUE(SyncDir(Path("a")).IsIOError());
+}
+
 #ifdef __APPLE__
 // /dev/null rejects F_FULLFSYNC with ENODEV but accepts fsync, so Sync() must
 // fall back rather than report the rejection as a failure.

@@ -67,4 +67,9 @@ Status NewSequentialFile(const std::string& path,
 Status NewRandomAccessFile(const std::string& path,
                            std::unique_ptr<RandomAccessFile>* result);
 
+// Force the directory `path` to stable storage, so that files created in or
+// renamed into it survive a crash. Syncing a file makes its contents durable
+// but not its directory entry. Returns IOError if `path` is not a directory.
+Status SyncDir(const std::string& path);
+
 }  // namespace sediment
