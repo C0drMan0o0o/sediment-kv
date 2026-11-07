@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "sediment/coding.h"
 #include "sediment/crc32c.h"
@@ -141,6 +142,39 @@ TEST_F(WalWriterTest, FailedAppendIsSticky) {
   const Status first = writer->AddRecord("fails");
   EXPECT_FALSE(first.ok());
   EXPECT_EQ(writer->AddRecord("again"), first);
+}
+
+// A WritableFile that keeps each Append's bytes separately.
+class RecordingFile final : public WritableFile {
+ public:
+  explicit RecordingFile(std::vector<std::string>* appends)
+      : appends_(appends) {}
+
+  Status Append(std::string_view data) override {
+    appends_->emplace_back(data);
+    return Status::OK();
+  }
+  Status Sync() override { return Status::OK(); }
+  Status Close() override { return Status::OK(); }
+
+ private:
+  std::vector<std::string>* appends_;
+};
+
+// One write(2) per record: a system call is most of an unsynced append's cost.
+TEST_F(WalWriterTest, EachRecordIsOneAppend) {
+  std::vector<std::string> appends;
+  Writer writer(std::make_unique<RecordingFile>(&appends));
+  const std::string big(100000, 'b');
+  for (const std::string_view payload :
+       {std::string_view("hello"), std::string_view(), std::string_view(big)}) {
+    const size_t before = appends.size();
+    ASSERT_TRUE(writer.AddRecord(payload).ok());
+    ASSERT_EQ(appends.size(), before + 1);
+    size_t pos = 0;
+    ExpectFrame(appends.back(), &pos, payload);
+    EXPECT_EQ(pos, appends.back().size());
+  }
 }
 
 // A WritableFile that can fail every Append, or only the first Sync, while
