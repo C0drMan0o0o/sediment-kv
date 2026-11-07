@@ -37,6 +37,15 @@ void AppendInternalKey(std::string* dst, const ParsedInternalKey& key) {
   PutFixed64(dst, PackTag(key.sequence, key.type));
 }
 
+char* EncodeInternalKey(char* dst, const ParsedInternalKey& key) {
+  if (!key.user_key.empty()) {
+    std::memcpy(dst, key.user_key.data(), key.user_key.size());
+  }
+  dst += key.user_key.size();
+  EncodeFixed64(dst, PackTag(key.sequence, key.type));
+  return dst + kTagBytes;
+}
+
 Status ParseInternalKey(std::string_view input, ParsedInternalKey* result) {
   if (input.size() < kTagBytes) {
     return Status::Corruption("internal key shorter than tag");

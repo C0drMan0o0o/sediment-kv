@@ -33,6 +33,10 @@ struct ParsedInternalKey {
 // (sequence << 8 | type). `sequence` must be <= kMaxSequenceNumber.
 void AppendInternalKey(std::string* dst, const ParsedInternalKey& key);
 
+// Like AppendInternalKey, but writes into `dst`, which must have room for
+// user_key.size() + 8 bytes. Returns the byte after the last one written.
+char* EncodeInternalKey(char* dst, const ParsedInternalKey& key);
+
 // Parse an encoded internal key. Returns Corruption if it is shorter than the
 // 8-byte tag or carries an unknown type. The result's user_key views `input`.
 Status ParseInternalKey(std::string_view input, ParsedInternalKey* result);
