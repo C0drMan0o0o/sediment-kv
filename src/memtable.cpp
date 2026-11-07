@@ -42,12 +42,9 @@ void MemTable::Add(SequenceNumber sequence, ValueType type,
       static_cast<size_t>(VarintLength(value.size())) + value.size();
   char* buf = arena_.Allocate(total);
 
-  std::string encoded;
-  AppendInternalKey(&encoded,
-                    {.user_key = key, .sequence = sequence, .type = type});
   char* p = EncodeVarint32(buf, static_cast<uint32_t>(internal_len));
-  std::memcpy(p, encoded.data(), internal_len);
-  p += internal_len;
+  p = EncodeInternalKey(p,
+                        {.user_key = key, .sequence = sequence, .type = type});
   p = EncodeVarint32(p, static_cast<uint32_t>(value.size()));
   if (!value.empty()) {
     std::memcpy(p, value.data(), value.size());

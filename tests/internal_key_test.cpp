@@ -39,6 +39,23 @@ TEST(InternalKey, RoundTrip) {
   }
 }
 
+TEST(InternalKey, EncodeInPlaceMatchesAppend) {
+  const std::array<std::string_view, 3> keys = {"", "hello",
+                                                std::string_view("a\0b", 3)};
+  for (auto key : keys) {
+    for (auto seq :
+         {SequenceNumber{0}, SequenceNumber{256}, kMaxSequenceNumber}) {
+      for (auto type : {ValueType::kDeletion, ValueType::kValue}) {
+        std::string buf(key.size() + 8, '\xff');
+        char* end = EncodeInternalKey(
+            buf.data(), {.user_key = key, .sequence = seq, .type = type});
+        EXPECT_EQ(end, buf.data() + buf.size());
+        EXPECT_EQ(buf, Encode(key, seq, type));
+      }
+    }
+  }
+}
+
 TEST(InternalKey, ParseRejectsShortInput) {
   ParsedInternalKey parsed;
   EXPECT_TRUE(ParseInternalKey("1234567", &parsed).IsCorruption());
