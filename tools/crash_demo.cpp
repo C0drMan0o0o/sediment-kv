@@ -4,9 +4,9 @@
 //                              Append puts forever, printing "ack <n>" after
 //                              each one is appended. Puts are synced unless
 //                              "nosync" is given, which keeps the writer out
-//                              of fsync so a kill can land between the header
-//                              and payload writes and leave a torn tail.
-//                              Meant to be killed.
+//                              of fsync and splits each record into two
+//                              writes, so a kill can land between them and
+//                              leave a torn tail. Meant to be killed.
 //   crash_demo verify <wal> <acked>
 //                              Replay the log and check that every one of the
 //                              first <acked> writes survived with its value.
@@ -18,6 +18,7 @@
 #include <exception>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "sediment/file.h"
 #include "sediment/memtable.h"
@@ -33,12 +34,35 @@ std::string ValueFor(uint64_t i) {
   return "value" + std::to_string(i);
 }
 
+// Passes each append on as two writes. The WAL writer makes one write per
+// record, which a kill -9 almost never interrupts, so without the split the
+// kill test would not produce the torn tails the reader has to handle.
+class SplitWritesFile final : public sediment::WritableFile {
+ public:
+  explicit SplitWritesFile(std::unique_ptr<sediment::WritableFile> file)
+      : file_(std::move(file)) {}
+
+  sediment::Status Append(std::string_view data) override {
+    const size_t half = data.size() / 2;
+    sediment::Status s = file_->Append(data.substr(0, half));
+    return s.ok() ? file_->Append(data.substr(half)) : s;
+  }
+  sediment::Status Sync() override { return file_->Sync(); }
+  sediment::Status Close() override { return file_->Close(); }
+
+ private:
+  std::unique_ptr<sediment::WritableFile> file_;
+};
+
 int Write(const std::string& path, bool sync) {
   std::unique_ptr<sediment::WritableFile> file;
   sediment::Status s = sediment::NewWritableFile(path, &file);
   if (!s.ok()) {
     std::fprintf(stderr, "%s\n", s.ToString().c_str());
     return 1;
+  }
+  if (!sync) {
+    file = std::make_unique<SplitWritesFile>(std::move(file));
   }
   sediment::wal::Writer writer(std::move(file));
   for (uint64_t i = 1;; ++i) {

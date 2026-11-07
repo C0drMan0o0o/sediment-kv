@@ -52,6 +52,9 @@ class Writer {
  private:
   std::unique_ptr<WritableFile> file_;
   Status error_;
+  // Header and payload of the record being appended, kept to reuse its
+  // capacity.
+  std::string record_;
 };
 
 // Why a Reader stopped before the end of the file.

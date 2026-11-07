@@ -4,9 +4,10 @@
 #
 #   tools/kill_recover.sh <path-to-crash_demo> [iterations] [sync|nosync]
 #
-# In nosync mode the writer never blocks in fsync, so kills often land between
-# a frame's header and payload writes. The run then also fails unless at least
-# one iteration recovered past a torn tail, so the torn-tail path is exercised.
+# In nosync mode the writer never blocks in fsync and crash_demo splits each
+# record into two writes, so kills often land between them. The run then also
+# fails unless at least one iteration recovered past a torn tail, so the
+# torn-tail path is exercised.
 # kill -9 leaves the page cache intact, so acknowledged writes must still
 # survive in either mode.
 set -euo pipefail

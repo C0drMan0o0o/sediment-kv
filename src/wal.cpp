@@ -28,10 +28,11 @@ Status Writer::AddRecord(std::string_view payload, bool sync) {
   EncodeFixed32(header.data() + 4, static_cast<uint32_t>(payload.size()));
   header[8] = type;
 
-  Status s = file_->Append({header.data(), header.size()});
-  if (s.ok()) {
-    s = file_->Append(payload);
-  }
+  // One write(2) per record: the system call costs far more than copying the
+  // payload, and an unsynced append is almost all system call.
+  record_.assign(header.data(), header.size());
+  record_.append(payload);
+  Status s = file_->Append(record_);
   if (s.ok() && sync) {
     s = file_->Sync();
   }

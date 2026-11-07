@@ -110,7 +110,17 @@ Fixed-width fields are little-endian. The CRC (masked, as in LevelDB) covers the
 
 **Length-prefixed, not block-fragmented.** LevelDB splits records across 32 KB blocks so a reader can resynchronise at the next block boundary after corruption. Sediment skips that: a record is a single frame of any size, which keeps the writer and reader simple. The cost is that after a bad frame the reader cannot find the next one, so recovery stops at the first damaged record. That is acceptable for a torn write, which can only damage the tail; damage further back is reported as `Corruption` instead of being skipped. The `type` byte leaves room to add fragment types later without changing the header.
 
-**Durability.** `AddRecord(payload, sync)` writes the header and payload with two unbuffered appends, then calls `Sync()` only if `sync` is true. After any failed append the log may end in a partial frame, so the writer returns the same error for all later appends rather than writing valid frames behind garbage. `Sync()` returns that error too, so a caller can't sync a damaged log and treat it as durable. A failed sync is sticky in the same way: after an `fsync` error the kernel may have dropped the unsynced pages, and a retried `fsync` can then succeed without them.
+**Durability.** `AddRecord(payload, sync)` writes the whole frame with a single unbuffered append (see below), then calls `Sync()` only if `sync` is true. After any failed append the log may end in a partial frame, so the writer returns the same error for all later appends rather than writing valid frames behind garbage. `Sync()` returns that error too, so a caller can't sync a damaged log and treat it as durable. A failed sync is sticky in the same way: after an `fsync` error the kernel may have dropped the unsynced pages, and a retried `fsync` can then succeed without them.
+
+**One write per record.** The writer used to append the header and the payload separately, which cost two `write(2)` calls per record. Without a sync, those system calls are most of an append's cost: copying the payload is cheap next to a trip into the kernel. `AddRecord` now copies the header and payload into a buffer it keeps between calls, and appends that once. Measured with 1M unsynced `AddRecord` calls in an optimised build on an Apple M5 Mac (APFS), as the median of 7 runs, in 3 rounds alternating between the two versions:
+
+| Payload | Two writes | One write | Change |
+|---------|------------|-----------|--------|
+| 30 B | 2637–2668 ms | 1337–1356 ms | about 2× faster |
+| 100 B | 2921–3015 ms | 1540–1560 ms | about 1.9× faster |
+| 1000 B | 4732–5263 ms | 3264–3387 ms | about 30% faster |
+
+The gain shrinks as records grow, because the copy grows with the payload while the system call saved stays the same. Synced appends gain little: their time goes on `F_FULLFSYNC`, which this does not change. One side effect is that a `kill -9` now almost never tears a record, so the kill test splits each record into two writes itself (see [Recovery](#recovery)).
 
 **Reading and torn writes.** `wal::Reader` returns records in order and stops at the first frame that is damaged: a short header, a short payload, a reserved or unknown type byte (a zero-filled tail lands here), or a CRC mismatch. It never returns a damaged record. After stopping it reads the rest of the file so `dropped_bytes()` reports exactly how much was discarded, and `stop_reason()` says why.
 
@@ -144,7 +154,7 @@ tools/kill_recover.sh build/crash_demo 100 nosync
 
 `tools/kill_recover.sh` runs `crash_demo write`, which appends synced puts and prints `ack <n>` once each is durable. The script sends `kill -9` after a random 20-220 ms, then `crash_demo verify` replays the log and checks that every acknowledged write was recovered with the right value. Recovering one more write than was acknowledged is fine: the process can die after the sync but before the print. `kill -9` only proves the log survives a process crash, since the page cache outlives the process; surviving power loss needs the fault-injecting file layer.
 
-The default `sync` mode rarely produces a torn tail: the writer spends its time blocked in `fsync`, so a kill seldom lands between a frame's header and payload writes (3 in 1000 iterations in one run). `nosync` mode keeps the writer out of `fsync`, so kills often land mid-frame (38 in 100 in one run). The run then also fails unless at least one iteration recovered past a torn tail, which shows the torn-tail path was exercised.
+The writer makes one `write(2)` per record, which a `kill -9` almost never interrupts, so the default `sync` mode practically never produces a torn tail (none in 100 iterations in one run). `nosync` mode keeps the writer out of `fsync` and has `crash_demo` split each record into two writes, so kills often land between them and leave a torn frame (29 in 100 in one run). The run then also fails unless at least one iteration recovered past a torn tail, which shows the torn-tail path was exercised.
 
 ## SSTable blocks
 
