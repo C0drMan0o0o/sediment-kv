@@ -110,7 +110,17 @@ Fixed-width fields are little-endian. The CRC (masked, as in LevelDB) covers the
 
 **Length-prefixed, not block-fragmented.** LevelDB splits records across 32 KB blocks so a reader can resynchronise at the next block boundary after corruption. Sediment skips that: a record is a single frame of any size, which keeps the writer and reader simple. The cost is that after a bad frame the reader cannot find the next one, so recovery stops at the first damaged record. That is acceptable for a torn write, which can only damage the tail; damage further back is reported as `Corruption` instead of being skipped. The `type` byte leaves room to add fragment types later without changing the header.
 
-**Durability.** `AddRecord(payload, sync)` copies the header and payload into one buffer and writes it with a single unbuffered append, then calls `Sync()` only if `sync` is true. Without a sync, the `write(2)` call is nearly all of a small append's cost, so one call per record instead of two roughly halves it (measured with 30 and 100 byte payloads); the extra copy of the payload is cheap by comparison. After any failed append the log may end in a partial frame, so the writer returns the same error for all later appends rather than writing valid frames behind garbage. `Sync()` returns that error too, so a caller can't sync a damaged log and treat it as durable. A failed sync is sticky in the same way: after an `fsync` error the kernel may have dropped the unsynced pages, and a retried `fsync` can then succeed without them.
+**Durability.** `AddRecord(payload, sync)` writes the whole frame with a single unbuffered append (see below), then calls `Sync()` only if `sync` is true. After any failed append the log may end in a partial frame, so the writer returns the same error for all later appends rather than writing valid frames behind garbage. `Sync()` returns that error too, so a caller can't sync a damaged log and treat it as durable. A failed sync is sticky in the same way: after an `fsync` error the kernel may have dropped the unsynced pages, and a retried `fsync` can then succeed without them.
+
+**One write per record.** The writer used to append the header and the payload separately, which cost two `write(2)` calls per record. Without a sync, those system calls are most of an append's cost: copying the payload is cheap next to a trip into the kernel. `AddRecord` now copies the header and payload into a buffer it keeps between calls, and appends that once. Measured with 1M unsynced `AddRecord` calls in an optimised build on an Apple M5 Mac (APFS), as the median of 7 runs, in 3 rounds alternating between the two versions:
+
+| Payload | Two writes | One write | Change |
+|---------|------------|-----------|--------|
+| 30 B | 2637–2668 ms | 1337–1356 ms | about 2× faster |
+| 100 B | 2921–3015 ms | 1540–1560 ms | about 1.9× faster |
+| 1000 B | 4732–5263 ms | 3264–3387 ms | about 30% faster |
+
+The gain shrinks as records grow, because the copy grows with the payload while the system call saved stays the same. Synced appends gain little: their time goes on `F_FULLFSYNC`, which this does not change. One side effect is that a `kill -9` now almost never tears a record, so the kill test splits each record into two writes itself (see [Recovery](#recovery)).
 
 **Reading and torn writes.** `wal::Reader` returns records in order and stops at the first frame that is damaged: a short header, a short payload, a reserved or unknown type byte (a zero-filled tail lands here), or a CRC mismatch. It never returns a damaged record. After stopping it reads the rest of the file so `dropped_bytes()` reports exactly how much was discarded, and `stop_reason()` says why.
 
