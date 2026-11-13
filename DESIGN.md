@@ -90,7 +90,7 @@ varint32 internal_key_len | internal key | varint32 value_len | value
 
 `WritableFile`, `SequentialFile` and `RandomAccessFile` (`sediment/file.h`) are thin wrappers over POSIX file descriptors. Every call returns a `Status`; `IOError` messages carry the path and `strerror`.
 
-**Appends are unbuffered.** `WritableFile::Append` goes straight to `write(2)`, retrying on `EINTR` and short writes. Data is then in the operating system's page cache, which survives a process crash (`kill -9`) but not power loss. Only `Sync()` makes it durable.
+**Appends are unbuffered.** `WritableFile::Append` goes straight to `write(2)`, retrying on `EINTR` and short writes. Every `read(2)`, `write(2)` and `pread(2)` call asks for at most 1 GiB, because macOS rejects a single call of more than `INT_MAX` bytes with `EINVAL`; larger transfers take several calls. Data is then in the operating system's page cache, which survives a process crash (`kill -9`) but not power loss. Only `Sync()` makes it durable.
 
 **The macOS `fsync` caveat.** On macOS, `fsync(2)` only hands data to the drive; the drive may keep it in a volatile write cache and lose it on power failure, so `fsync` does not meet the durability promise `sync_writes` makes. `Sync()` therefore calls `fcntl(fd, F_FULLFSYNC)`, which also flushes the drive's cache. It is slower, and some file systems and devices reject it, so `Sync()` falls back to `fsync` when `F_FULLFSYNC` fails. The exceptions are `EIO`, `ENOSPC` and `EDQUOT`, which mean the data did not reach storage; those are returned as `IOError`, because a following `fsync` could succeed and report lost writes as durable. `EINTR` is retried.
 

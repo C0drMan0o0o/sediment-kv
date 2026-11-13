@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <memory>
@@ -11,6 +12,11 @@
 
 namespace sediment {
 namespace {
+
+// macOS rejects a single read(2), write(2) or pread(2) of more than INT_MAX
+// bytes with EINVAL, so larger transfers are split. Every caller already loops
+// on short transfers.
+constexpr size_t kMaxIoBytes = size_t{1} << 30U;
 
 Status PosixError(const std::string& context, int err) {
   return Status::IOError(context + ": " + std::strerror(err));
@@ -87,7 +93,8 @@ class PosixWritableFile final : public WritableFile {
       return Status::InvalidArgument(file_.path() + ": file is closed");
     }
     while (!data.empty()) {
-      const ssize_t written = ::write(file_.fd(), data.data(), data.size());
+      const ssize_t written =
+          ::write(file_.fd(), data.data(), std::min(data.size(), kMaxIoBytes));
       if (written < 0) {
         if (errno == EINTR) {
           continue;
@@ -118,7 +125,7 @@ class PosixSequentialFile final : public SequentialFile {
 
   Status Read(size_t n, char* scratch, std::string_view* result) override {
     for (;;) {
-      const ssize_t got = ::read(file_.fd(), scratch, n);
+      const ssize_t got = ::read(file_.fd(), scratch, std::min(n, kMaxIoBytes));
       if (got < 0) {
         if (errno == EINTR) {
           continue;
@@ -150,8 +157,9 @@ class PosixRandomAccessFile final : public RandomAccessFile {
               std::string_view* result) const override {
     size_t total = 0;
     while (total < n) {
-      const ssize_t got = ::pread(file_.fd(), scratch + total, n - total,
-                                  static_cast<off_t>(offset + total));
+      const ssize_t got =
+          ::pread(file_.fd(), scratch + total, std::min(n - total, kMaxIoBytes),
+                  static_cast<off_t>(offset + total));
       if (got < 0) {
         if (errno == EINTR) {
           continue;

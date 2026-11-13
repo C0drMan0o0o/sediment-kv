@@ -1,6 +1,7 @@
 #include "sediment/file.h"
 
 #include <gtest/gtest.h>
+#include <sys/mman.h>
 
 #include <array>
 #include <cstdint>
@@ -85,6 +86,22 @@ TEST_F(FileTest, LargeAppendRoundTrips) {
   std::string_view result;
   ASSERT_TRUE(file->Read(0, data.size(), scratch.data(), &result).ok());
   EXPECT_EQ(result, data);
+}
+
+// macOS rejects a single write(2) of more than INT_MAX bytes with EINVAL, so
+// Append must split it. /dev/null and untouched anonymous pages (which read as
+// zeros) keep this cheap: no real memory or disk is used.
+TEST_F(FileTest, AppendOverTwoGiBSucceeds) {
+  const size_t size = (size_t{1} << 31U) + 1;
+  // NOLINTNEXTLINE(bugprone-signed-bitwise): MAP_* flags are int macros.
+  void* pages = mmap(nullptr, size, PROT_READ, MAP_PRIVATE | MAP_ANON, -1, 0);
+  ASSERT_NE(pages, MAP_FAILED);
+  std::unique_ptr<WritableFile> file;
+  ASSERT_TRUE(NewWritableFile("/dev/null", &file).ok());
+  const Status s = file->Append({static_cast<const char*>(pages), size});
+  EXPECT_TRUE(s.ok()) << s.ToString();
+  EXPECT_TRUE(file->Close().ok());
+  munmap(pages, size);
 }
 
 TEST_F(FileTest, NewWritableFileTruncatesExistingFile) {
