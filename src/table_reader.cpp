@@ -87,34 +87,7 @@ Status Table::ReadBlock(const BlockHandle& handle,
 
 Status Table::Seek(std::string_view target, std::string* key,
                    std::string* value) const {
-  // The first index entry whose last key is >= target names the only block
-  // that can hold the first entry >= target.
-  BlockReader::Iterator index_it = index_.NewIterator();
-  index_it.Seek(target);
-  if (!index_it.Valid()) {
-    return index_it.status().ok() ? Status::NotFound() : index_it.status();
-  }
-
-  std::string_view handle_bytes = index_it.value();
-  BlockHandle handle;
-  Status s = GetVarint64(&handle_bytes, &handle.offset);
-  if (s.ok()) {
-    s = GetVarint64(&handle_bytes, &handle.size);
-  }
-  if (!s.ok()) {
-    return Status::Corruption("bad block handle in index");
-  }
-
-  std::string contents;
-  s = ReadBlock(handle, &contents);
-  if (!s.ok()) {
-    return s;
-  }
-  const BlockReader block(contents, comparator_);
-  if (!block.status().ok()) {
-    return block.status();
-  }
-  BlockReader::Iterator it = block.NewIterator();
+  Iterator it = NewIterator();
   it.Seek(target);
   if (!it.Valid()) {
     return it.status().ok() ? Status::NotFound() : it.status();
@@ -172,6 +145,97 @@ Status Table::Get(std::string_view user_key, SequenceNumber sequence,
     *result = LookupResult::kFound;
   }
   return Status::OK();
+}
+
+Table::Iterator Table::NewIterator() const {
+  return Iterator(this);
+}
+
+Table::Iterator::Iterator(const Table* table)
+    : table_(table), index_it_(table->index_.NewIterator()) {}
+
+void Table::Iterator::Fail(Status status) {
+  data_.reset();
+  if (status_.ok()) {
+    status_ = std::move(status);
+  }
+}
+
+void Table::Iterator::LoadDataBlock() {
+  data_.reset();
+  if (!index_it_.Valid()) {
+    if (!index_it_.status().ok()) {
+      Fail(index_it_.status());
+    }
+    return;
+  }
+
+  std::string_view handle_bytes = index_it_.value();
+  BlockHandle handle;
+  if (!GetVarint64(&handle_bytes, &handle.offset).ok() ||
+      !GetVarint64(&handle_bytes, &handle.size).ok()) {
+    Fail(Status::Corruption("bad block handle in index"));
+    return;
+  }
+  std::string contents;
+  Status s = table_->ReadBlock(handle, &contents);
+  if (!s.ok()) {
+    Fail(std::move(s));
+    return;
+  }
+  auto block =
+      std::make_unique<DataBlock>(std::move(contents), table_->comparator_);
+  if (!block->reader.status().ok()) {
+    Fail(block->reader.status());
+    return;
+  }
+  data_ = std::move(block);
+}
+
+void Table::Iterator::SkipExhaustedBlocks() {
+  while (data_ != nullptr && !data_->it.Valid()) {
+    if (!data_->it.status().ok()) {
+      Fail(data_->it.status());
+      return;
+    }
+    index_it_.Next();
+    LoadDataBlock();
+    if (data_ != nullptr) {
+      data_->it.SeekToFirst();
+    }
+  }
+}
+
+void Table::Iterator::SeekToFirst() {
+  if (!status_.ok()) {
+    return;
+  }
+  index_it_.SeekToFirst();
+  LoadDataBlock();
+  if (data_ != nullptr) {
+    data_->it.SeekToFirst();
+  }
+  SkipExhaustedBlocks();
+}
+
+void Table::Iterator::Seek(std::string_view target) {
+  if (!status_.ok()) {
+    return;
+  }
+  // The first index entry whose last key is >= target names the first block
+  // that can hold an entry >= target.
+  index_it_.Seek(target);
+  LoadDataBlock();
+  if (data_ != nullptr) {
+    data_->it.Seek(target);
+  }
+  SkipExhaustedBlocks();
+}
+
+void Table::Iterator::Next() {
+  assert(Valid());
+  data_->it.Next();
+  SkipExhaustedBlocks();
 }
 
 }  // namespace sediment
