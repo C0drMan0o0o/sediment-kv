@@ -4,7 +4,7 @@
 
 A persistent, crash-safe key-value store written in C++20, built on a log-structured merge-tree (LSM-tree): write-ahead log, memtable, SSTables and leveled compaction.
 
-> **Status: work in progress.** The storage building blocks exist and are tested on their own: a memtable, a write-ahead log with crash recovery, and SSTables that a memtable can be flushed to and looked up in. They are not wired together yet and there is no database API, so there is nothing to use beyond building and running the tests. Next up: a table iterator, then `DB::Open`, `Put`, `Get` and `Delete`. Usage examples will be added once those land.
+> **Status: work in progress.** The storage building blocks exist and are tested on their own: a memtable, a write-ahead log with crash recovery, and SSTables that a memtable can be flushed to, looked up in and scanned in order. They are not wired together yet and there is no database API, so there is nothing to use beyond building and running the tests. Next up: `DB::Open`, `Put`, `Get` and `Delete`. Usage examples will be added once those land.
 
 ## Components
 
