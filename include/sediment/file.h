@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "sediment/status.h"
 
@@ -71,5 +72,25 @@ Status NewRandomAccessFile(const std::string& path,
 // renamed into it survive a crash. Syncing a file makes its contents durable
 // but not its directory entry. Returns IOError if `path` is not a directory.
 Status SyncDir(const std::string& path);
+
+// Create the directory `path` if it does not exist; its parent must exist.
+// Any existing entry at `path` counts, even a regular file; operations inside
+// it then fail.
+Status CreateDirIfMissing(const std::string& path);
+
+// Replace `*names` with the names of the entries in directory `path`, in no
+// particular order, without "." and "..".
+Status GetChildren(const std::string& path, std::vector<std::string>* names);
+
+// An exclusive lock on a file, released when the object is destroyed.
+class FileLock {
+ public:
+  virtual ~FileLock() = default;
+};
+
+// Create `path` if needed and take an exclusive flock(2) on it, without
+// waiting. Fails with IOError if any other open of the file holds the lock,
+// in this process or another. See DESIGN.md.
+Status LockFile(const std::string& path, std::unique_ptr<FileLock>* lock);
 
 }  // namespace sediment

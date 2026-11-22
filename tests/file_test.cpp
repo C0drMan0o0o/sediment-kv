@@ -3,12 +3,14 @@
 #include <gtest/gtest.h>
 #include <sys/mman.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace sediment {
 namespace {
@@ -191,6 +193,52 @@ TEST_F(FileTest, SyncDirOnMissingDirectoryIsIOError) {
 TEST_F(FileTest, SyncDirOnRegularFileIsIOError) {
   WriteFile("a", "x");
   EXPECT_TRUE(SyncDir(Path("a")).IsIOError());
+}
+
+TEST_F(FileTest, CreateDirIfMissingCreatesOnceThenAcceptsTheExistingOne) {
+  ASSERT_TRUE(CreateDirIfMissing(Path("d")).ok());
+  EXPECT_TRUE(std::filesystem::is_directory(Path("d")));
+  EXPECT_TRUE(CreateDirIfMissing(Path("d")).ok());
+}
+
+TEST_F(FileTest, CreateDirIfMissingWithMissingParentIsIOError) {
+  EXPECT_TRUE(CreateDirIfMissing(Path("missing/d")).IsIOError());
+}
+
+TEST_F(FileTest, GetChildrenListsEntriesWithoutDotEntries) {
+  WriteFile("a", "x");
+  WriteFile("b", "y");
+  std::filesystem::create_directory(Path("sub"));
+  std::vector<std::string> names = {"stale"};
+  ASSERT_TRUE(GetChildren(dir_.string(), &names).ok());
+  std::ranges::sort(names);
+  EXPECT_EQ(names, (std::vector<std::string>{"a", "b", "sub"}));
+}
+
+TEST_F(FileTest, GetChildrenOnMissingDirectoryIsIOError) {
+  std::vector<std::string> names;
+  EXPECT_TRUE(GetChildren(Path("missing"), &names).IsIOError());
+}
+
+TEST_F(FileTest, LockFileIsExclusiveUntilReleased) {
+  std::unique_ptr<FileLock> first;
+  ASSERT_TRUE(LockFile(Path("LOCK"), &first).ok());
+  ASSERT_NE(first, nullptr);
+
+  // flock(2) locks belong to an open of the file, so a second open in the
+  // same process conflicts too.
+  std::unique_ptr<FileLock> second;
+  const Status s = LockFile(Path("LOCK"), &second);
+  EXPECT_TRUE(s.IsIOError()) << s.ToString();
+  EXPECT_EQ(second, nullptr);
+
+  first.reset();
+  EXPECT_TRUE(LockFile(Path("LOCK"), &second).ok());
+}
+
+TEST_F(FileTest, LockFileInMissingDirectoryIsIOError) {
+  std::unique_ptr<FileLock> lock;
+  EXPECT_TRUE(LockFile(Path("missing/LOCK"), &lock).IsIOError());
 }
 
 #ifdef __APPLE__

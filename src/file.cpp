@@ -1,6 +1,9 @@
 #include "sediment/file.h"
 
+#include <dirent.h>
 #include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -9,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace sediment {
 namespace {
@@ -180,6 +184,15 @@ class PosixRandomAccessFile final : public RandomAccessFile {
   PosixFd file_;
 };
 
+class PosixFileLock final : public FileLock {
+ public:
+  // Closing the descriptor releases the lock.
+  explicit PosixFileLock(PosixFd file) : file_(std::move(file)) {}
+
+ private:
+  PosixFd file_;
+};
+
 // open(2) `path` with `flags`, retrying on EINTR. Returns -1 with errno set.
 int OpenRetrying(const std::string& path, int flags) {
   int fd = -1;
@@ -232,6 +245,60 @@ Status SyncDir(const std::string& path) {
     s = dir.Close();
   }
   return s;
+}
+
+Status CreateDirIfMissing(const std::string& path) {
+  if (::mkdir(path.c_str(), 0755) == 0 || errno == EEXIST) {
+    return Status::OK();
+  }
+  return PosixError(path, errno);
+}
+
+Status GetChildren(const std::string& path, std::vector<std::string>* names) {
+  names->clear();
+  DIR* dir = ::opendir(path.c_str());
+  if (dir == nullptr) {
+    return PosixError(path, errno);
+  }
+  const std::unique_ptr<DIR, int (*)(DIR*)> closer(dir, ::closedir);
+  while (true) {
+    errno = 0;  // readdir(3) returns null both at the end and on error.
+    const dirent* entry = ::readdir(dir);
+    if (entry == nullptr) {
+      break;
+    }
+    const std::string_view name(entry->d_name);
+    if (name != "." && name != "..") {
+      names->emplace_back(name);
+    }
+  }
+  if (errno != 0) {
+    return PosixError(path, errno);
+  }
+  return Status::OK();
+}
+
+Status LockFile(const std::string& path, std::unique_ptr<FileLock>* lock) {
+  lock->reset();
+  // NOLINTNEXTLINE(bugprone-signed-bitwise): O_* flags are int macros.
+  const int fd = OpenRetrying(path, O_RDWR | O_CREAT);
+  if (fd < 0) {
+    return PosixError(path, errno);
+  }
+  PosixFd file(path, fd);
+  int rc = 0;
+  do {
+    // NOLINTNEXTLINE(bugprone-signed-bitwise): LOCK_* flags are int macros.
+    rc = ::flock(file.fd(), LOCK_EX | LOCK_NB);
+  } while (rc != 0 && errno == EINTR);
+  if (rc != 0) {
+    if (errno == EWOULDBLOCK) {
+      return Status::IOError(path + ": already locked by another handle");
+    }
+    return PosixError(path + ": flock", errno);
+  }
+  *lock = std::make_unique<PosixFileLock>(std::move(file));
+  return Status::OK();
 }
 
 }  // namespace sediment
