@@ -10,6 +10,7 @@ Decisions are recorded here as they are made, with the alternatives that were re
 | Error reporting | `Status` return values, `[[nodiscard]]` | Exceptions | See [Error handling](#error-handling) |
 | Memtable structure | Skiplist over an arena | Red-black tree, `std::map` | See [Memtable](#memtable) |
 | Key versions | Internal key = user key + (sequence, type) tag | Overwrite in place | See [Key encoding](#key-encoding) |
+| Directory lock | `flock(2)` on a `LOCK` file | `fcntl(F_SETLK)` record locks | See [Database directory](#database-directory) |
 
 ## Byte views
 
@@ -96,7 +97,7 @@ varint32 internal_key_len | internal key | varint32 value_len | value
 
 The fallback uses a denylist of real failures rather than an allowlist of "unsupported" codes. A rejected `F_FULLFSYNC` does not always report the same code (`/dev/null` gives `ENODEV`, not `ENOTSUP`), and an unrecognised code on an allowlist would make `Sync()` fail on a file system where `fsync` works. LevelDB and SQLite fall back on any failure; the denylist keeps that tolerance but stops masking errors that mean lost data. On Linux, `fsync(2)` already waits for the device to report the data durable, so it is used directly.
 
-**Directory entries.** `Sync()` makes a file's contents durable but not its name: the entry in the parent directory is separate metadata, and a crash can lose it, leaving a synced file that no longer exists. `SyncDir(path)` opens the directory and syncs it with the same `F_FULLFSYNC`/`fsync` logic as files. Anything that creates or renames a file and then relies on it surviving a crash must call it. `WriteMemTableToTable` does so after closing the new table. The WAL, the manifest and the `CURRENT` file's atomic rename will need the same once `DB::Open` creates them.
+**Directory entries.** `Sync()` makes a file's contents durable but not its name: the entry in the parent directory is separate metadata, and a crash can lose it, leaving a synced file that no longer exists. `SyncDir(path)` opens the directory and syncs it with the same `F_FULLFSYNC`/`fsync` logic as files. Anything that creates or renames a file and then relies on it surviving a crash must call it. `WriteMemTableToTable` does so after closing the new table, and `DB::Open` after creating the database directory and its WAL (see [Database directory](#database-directory)). The manifest and the `CURRENT` file's atomic rename will need the same.
 
 ## Write-ahead log
 
@@ -188,6 +189,23 @@ The footer holds the index handle (two fixed64s), a format version (fixed32) and
 
 - `Get(key, &value)` matches a key exactly in comparator order. It suits bytewise tables, and the block and table tests use it.
 - `Get(user_key, sequence, &value, &result)` is the read path's lookup on a table of internal keys. It seeks to `(user_key, sequence, kValue)`, the same probe `MemTable::Get` uses, which sorts before every version of the key visible at `sequence`. The first entry at or after it then decides the result: a different user key is `kNotFound` (ask the next, older table), a tombstone is `kDeleted` (stop), and anything else is `kFound` with its value. Real failures come back as a non-OK `Status`, so `Corruption` and `IOError` stay separate from the three normal outcomes. Because the result mirrors `MemTable::GetResult`, the read path can treat the memtables and every table in the same way, newest first.
+
+## Database directory
+
+A database is one directory. `DB::Open(options, path, &db)` creates it if it is missing (but not its parents), locks it, and starts a new WAL:
+
+```
+db/
+├── LOCK          # held for as long as a DB has the directory open
+├── 000001.wal    # write-ahead log
+└── 000002.sst    # table
+```
+
+**File names.** Logs and tables are named by a number, zero-padded to six digits, and an extension for the type (`sediment/filename.h`). Numbers past 999999 simply get more digits, so a plain listing sorts in creation order only up to there; code compares parsed numbers, not names. Logs and tables share one counter, so a number names exactly one file. Until the manifest records the next number, `DB::Open` takes one past the highest number it finds in the directory. The new log therefore never truncates an existing file, which `NewWritableFile` would otherwise do. Files it does not recognise are left alone. If the highest number is already the largest a `uint64_t` holds, `DB::Open` fails with `Corruption` rather than wrap to 0.
+
+**Locking.** `DB::Open` takes an exclusive, non-blocking `flock(2)` on `LOCK` and holds it until the `DB` is destroyed; a second `DB::Open` on the same directory fails with `IOError` and creates nothing. The lock lives on the open file description, so it conflicts with every other open of the file, whether from another process or from the same one, and the kernel drops it when the process dies, so a crash never leaves a stale lock behind. LevelDB uses `fcntl(F_SETLK)` record locks instead. Those belong to the process, so a second open in the same process succeeds, and closing any descriptor for the file releases them. LevelDB keeps a table of the files it has locked to cover the first gap. With `flock` neither problem arises and no table is needed. The cost is that `flock` is unreliable on some network file systems, which Sediment does not support. The descriptor is opened with `O_CLOEXEC` so a program started by `exec` does not inherit the lock; a child created by `fork` alone shares it until the child closes it.
+
+**Directory syncs.** Creating a file or directory adds an entry to its parent, and that entry is only durable once the parent is synced (see [Files and durability](#files-and-durability)). `DB::Open` syncs the parent after creating the database directory, and the database directory after creating the WAL, before any write could be acknowledged. It syncs the parent on every open, not only when it has just created the directory: an earlier open may have created it and then failed or crashed before the sync, and a retry that skipped it would leave the whole directory at risk. That costs one extra sync per open. Without the second sync, a crash could lose the log's name even after its records had been synced.
 
 ## Resources
 

@@ -4,7 +4,7 @@
 
 A persistent, crash-safe key-value store written in C++20, built on a log-structured merge-tree (LSM-tree): write-ahead log, memtable, SSTables and leveled compaction.
 
-> **Status: work in progress.** The storage building blocks exist and are tested on their own: a memtable, a write-ahead log with crash recovery, and SSTables that a memtable can be flushed to, looked up in and scanned in order. They are not wired together yet and there is no database API, so there is nothing to use beyond building and running the tests. Next up: `DB::Open`, `Put`, `Get` and `Delete`. Usage examples will be added once those land.
+> **Status: work in progress.** The storage building blocks exist and are tested on their own: a memtable, a write-ahead log with crash recovery, and SSTables that a memtable can be flushed to, looked up in and scanned in order. `DB::Open` creates and locks a database directory and starts its write-ahead log, but there is no read or write API yet, so there is nothing to use beyond building and running the tests. Next up: `Put`, `Get` and `Delete`. Usage examples will be added once those land.
 
 ## Components
 
@@ -17,11 +17,13 @@ A persistent, crash-safe key-value store written in C++20, built on a log-struct
 | Internal keys | `internal_key.h` | User key, sequence number and type, ordered by user key ascending then sequence descending |
 | `MemTable` | `memtable.h` | Write buffer; deletes are stored as tombstone entries |
 | CRC32C | `crc32c.h` | Checksums for log records and SSTable blocks |
-| File layer | `file.h` | POSIX file wrappers that return `Status`; `Sync` (with `F_FULLFSYNC` on macOS) and `SyncDir` |
+| File layer | `file.h` | POSIX file wrappers that return `Status`; `Sync` (with `F_FULLFSYNC` on macOS), `SyncDir`, directory listing and file locks |
 | Write-ahead log | `wal.h` | CRC-checked log records; the reader drops a torn tail and reports damage elsewhere as corruption |
 | Recovery | `recovery.h` | Replays a write-ahead log into a memtable |
 | Blocks | `block_builder.h`, `block_reader.h` | Sorted key/value blocks with prefix compression, restart points and a CRC |
 | SSTables | `table_builder.h`, `table_reader.h` | Table files of data blocks, an index block and a footer; a memtable flushes to one, and lookups find the newest visible version of a user key |
+| File names | `filename.h` | Numbered `.wal` and `.sst` names in a database directory |
+| Database | `db.h`, `options.h` | `DB::Open`: creates, locks and syncs the database directory and starts a new write-ahead log |
 
 ## Requirements
 
