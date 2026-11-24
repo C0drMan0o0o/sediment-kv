@@ -85,7 +85,7 @@ varint32 internal_key_len | internal key | varint32 value_len | value
 - `kDeleted` and `kNotFound` must stay distinct. `kNotFound` means "ask the next, older source" (immutable memtable, then SSTables); `kDeleted` means "stop, the key is gone". Collapsing them would resurrect deleted keys.
 - `ApproximateMemoryUsage()` is the arena's total, including slack in partially filled blocks. It grows in 4 KB steps, which is fine for a flush threshold of megabytes.
 
-**Size limits.** Key and value lengths are stored as varint32 in memtable entries, WAL entries and SSTable blocks, so each must be under 4 GiB, and a memtable key must leave room for the 8-byte tag. `MemTable::Add`, `EncodeLogEntry` and `BlockBuilder::Add` cannot report an error, so they only `assert` this. In a release build, a longer key or value would have its length silently cut to 32 bits. `DB::Put` must reject such input with `InvalidArgument` before it reaches them, as `wal::Writer::AddRecord` already does for records over 4 GiB.
+**Size limits.** Key and value lengths are stored as varint32 in memtable entries, WAL entries and SSTable blocks, so each must be under 4 GiB, and a memtable key must leave room for the 8-byte tag. `MemTable::Add`, `EncodeLogEntry` and `BlockBuilder::Add` cannot report an error, so they only `assert` this. In a release build, a longer key or value would have its length silently cut to 32 bits. `DB::Put` and `DB::Delete` therefore reject such input with `InvalidArgument` before it reaches them, as `wal::Writer::AddRecord` does for records over 4 GiB.
 
 ## Files and durability
 
@@ -192,7 +192,7 @@ The footer holds the index handle (two fixed64s), a format version (fixed32) and
 
 ## Database directory
 
-A database is one directory. `DB::Open(options, path, &db)` creates it if it is missing (but not its parents), locks it, and starts a new WAL:
+A database is one directory. `DB::Open(options, path, &db)` creates it if it is missing (but not its parents), locks it, replays its existing WALs and starts a new one:
 
 ```
 db/
@@ -206,6 +206,12 @@ db/
 **Locking.** `DB::Open` takes an exclusive, non-blocking `flock(2)` on `LOCK` and holds it until the `DB` is destroyed; a second `DB::Open` on the same directory fails with `IOError` and creates nothing. The lock lives on the open file description, so it conflicts with every other open of the file, whether from another process or from the same one, and the kernel drops it when the process dies, so a crash never leaves a stale lock behind. LevelDB uses `fcntl(F_SETLK)` record locks instead. Those belong to the process, so a second open in the same process succeeds, and closing any descriptor for the file releases them. LevelDB keeps a table of the files it has locked to cover the first gap. With `flock` neither problem arises and no table is needed. The cost is that `flock` is unreliable on some network file systems, which Sediment does not support. The descriptor is opened with `O_CLOEXEC` so a program started by `exec` does not inherit the lock; a child created by `fork` alone shares it until the child closes it.
 
 **Directory syncs.** Creating a file or directory adds an entry to its parent, and that entry is only durable once the parent is synced (see [Files and durability](#files-and-durability)). `DB::Open` syncs the parent after creating the database directory, and the database directory after creating the WAL, before any write could be acknowledged. It syncs the parent on every open, not only when it has just created the directory: an earlier open may have created it and then failed or crashed before the sync, and a retry that skipped it would leave the whole directory at risk. That costs one extra sync per open. Without the second sync, a crash could lose the log's name even after its records had been synced.
+
+**Replay on open.** `DB::Open` replays every WAL in the directory into a fresh memtable, in file-number order, before it creates the new log. Logs are numbered in creation order and each holds a run of sequence numbers higher than every earlier log's, so replaying them in order rebuilds the memtable exactly, and the next write continues one past the highest sequence found. A torn tail on any log is dropped, as in [Recovery](#recovery); any other damage fails the open with `Corruption` rather than silently losing the writes after it, and no new log is created. Replayed logs are kept: until the memtable is flushed to a table they are its only durable copy, so each reopen replays them all again.
+
+**Write path.** `Put` and `Delete` are one `Write(type, key, value)`: check the key and value sizes, take the next sequence number, append the entry to the WAL, then add it to the memtable. The log comes first so the memtable never holds a write the log could lose. If the append or its sync fails, the memtable is left alone, the sequence number is not used, and the WAL writer's sticky error makes every later write fail too (see [Write-ahead log](#write-ahead-log)). The entry may still have reached the log, though, so a write that returned an error can reappear after a reopen: an error means the outcome is unknown, not that the write did not happen. `Get` currently reads only the memtable at the latest sequence number; a tombstone and a missing key both give `NotFound`.
+
+**Durability contract.** With `Options::sync_writes` off, a write is in the operating system's page cache when `Put` or `Delete` returns. It survives the process crashing (`kill -9`, a failed assertion) but may be lost if the machine loses power or the kernel crashes. The kernel may also write unsynced pages back out of order, so after power loss the log can hold a hole followed by intact records; replay reports that as `Corruption` rather than guess which writes survived. With `sync_writes` on, the log is synced (`F_FULLFSYNC` on macOS) before the call returns, so an acknowledged write also survives power loss. The cost is one sync per write. The new log's directory entry is synced by `DB::Open` before any write is accepted, so the contract does not depend on a later directory sync.
 
 ## Resources
 
