@@ -4,7 +4,7 @@
 
 A persistent, crash-safe key-value store written in C++20, built on a log-structured merge-tree (LSM-tree): write-ahead log, memtable, SSTables and leveled compaction.
 
-> **Status: work in progress.** The storage building blocks exist and are tested on their own: a memtable, a write-ahead log with crash recovery, and SSTables that a memtable can be flushed to, looked up in and scanned in order. `DB::Open` creates and locks a database directory and starts its write-ahead log, but there is no read or write API yet, so there is nothing to use beyond building and running the tests. Next up: `Put`, `Get` and `Delete`. Usage examples will be added once those land.
+> **Status: work in progress.** The storage building blocks exist and are tested on their own: a memtable, a write-ahead log with crash recovery, and SSTables that a memtable can be flushed to, looked up in and scanned in order. `DB::Open` creates and locks a database directory and replays its write-ahead logs; `Put` and `Delete` are logged before they are applied, and `Get` reads them back. Everything is held in the memtable for now. Next up: flushing the memtable to SSTables and reading across them. Usage examples will be added once the read path is complete.
 
 ## Components
 
@@ -23,7 +23,7 @@ A persistent, crash-safe key-value store written in C++20, built on a log-struct
 | Blocks | `block_builder.h`, `block_reader.h` | Sorted key/value blocks with prefix compression, restart points and a CRC |
 | SSTables | `table_builder.h`, `table_reader.h` | Table files of data blocks, an index block and a footer; a memtable flushes to one, and lookups find the newest visible version of a user key |
 | File names | `filename.h` | Numbered `.wal` and `.sst` names in a database directory |
-| Database | `db.h`, `options.h` | `DB::Open`: creates, locks and syncs the database directory and starts a new write-ahead log |
+| Database | `db.h`, `options.h` | `DB::Open` creates, locks and syncs the database directory and replays its write-ahead logs; `Put`, `Delete` and `Get`, with an optional sync on every write |
 
 ## Requirements
 
